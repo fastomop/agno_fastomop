@@ -7,17 +7,42 @@ from typing import Dict, Any
 load_dotenv()
 
 #Project config
-CONFIG_PATH = Path(__file__).parent.parent.parent / "config.toml"
+CONFIG_DIR = Path(__file__).parent.parent.parent
+CONFIG_PATH = CONFIG_DIR / "config.toml"
+LOCAL_CONFIG_PATH = CONFIG_DIR / "config.local.toml"
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    """
+    Deep merge override dict into base dict
+    """
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
 
 def load_config() -> dict:
     """
-    Load config
+    Load config with hierarchy: .env > config.local.toml > config.toml
     """
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(f"Config file not found at {CONFIG_PATH}")
-    
+
+    # Load base config
     with open(CONFIG_PATH, "rb") as f:
-        return tomli.load(f)
+        config = tomli.load(f)
+
+    # Override with local config if it exists
+    if LOCAL_CONFIG_PATH.exists():
+        with open(LOCAL_CONFIG_PATH, "rb") as f:
+            local_config = tomli.load(f)
+        config = deep_merge(config, local_config)
+
+    return config
 
 config = load_config()
 
