@@ -3,24 +3,36 @@ from typing import List, Optional, Dict, Literal
 
 class ConceptMapping(BaseModel):
     term: str
-    concept_code: str
-    vocabulary_id: str
-    domain_id: Literal["Condition", "Drug", "Device", "Observation",
-                         "Procedure", "Measurement", "Gender", 
-                         "Race", "Ethnicity", "Visit"]
+    concept_code: Optional[str] = None  # Allow None when concept not found
+    vocabulary_id: Optional[str] = None
+    domain_id: Optional[Literal["Condition", "Drug", "Device", "Observation",
+                         "Procedure", "Measurement", "Gender",
+                         "Race", "Ethnicity", "Visit"]] = None
     concept_id: Optional[int] = None
 
 class TemporalConstraint(BaseModel):
-    window_days: int
-    constraint_type: str # "within", "after", "before"
+    """Flexible temporal constraint - structure varies by query type.
 
-    def to_sql(self):
-        if self.constraint_type == "within":
-            return f"ABS(date1 - date2) <= {self.window_days}"
-        elif self.constraint_type == "after":
-            return f"(date1 - date2) >= 0 AND (date1 - date2) <= {self.window_days}"
-        elif self.constraint_type == "before":
-            return f"(date2 - date1) >= 0 AND (date2 - date1) <= {self.window_days}"
+    Common patterns:
+    - Relative window: {window_days: int, constraint_type: "within"|"before"|"after"}
+    - Specific year: {year: int, constraint_type: str}
+    - Date range: {start_date: str, end_date: str}
+    - Grouping: {group_by: str}
+    - Any other semantic representation the LLM finds appropriate
+
+    The database agent is responsible for interpreting these fields and generating appropriate SQL.
+    """
+
+    # Common fields (all optional to support different patterns)
+    window_days: Optional[int] = None
+    constraint_type: Optional[str] = None
+    year: Optional[int] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    group_by: Optional[str] = None
+
+    class Config:
+        extra = "allow"  # Accept novel fields from LLM
 
 class SemanticContext(BaseModel):
     user_query: str

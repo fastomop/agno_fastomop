@@ -130,6 +130,58 @@ Extract medical terms from the user query and map them to OMOP concept codes by 
      "additional_filters": null
    }
 
+   Example 3 - Year-based query:
+   {
+     "user_query": "Patients diagnosed with diabetes in 1990",
+     "query_intent": "diagnosis_year_specific",
+     "entities": [
+       {
+         "term": "diabetes",
+         "concept_id": 201826,
+         "concept_code": "44054006",
+         "vocabulary_id": "SNOMED",
+         "domain_id": "Condition"
+       }
+     ],
+     "temporal_constraint": {
+       "year": 1990,
+       "constraint_type": "diagnosis_year"
+     },
+     "additional_filters": null
+   }
+
+   Example 4 - Grouping/aggregation query:
+   {
+     "user_query": "Prescription counts by year",
+     "query_intent": "prescription_trends",
+     "entities": [],
+     "temporal_constraint": {
+       "group_by": "year_of_prescription"
+     },
+     "additional_filters": null
+   }
+
+   Example 5 - Date range query:
+   {
+     "user_query": "Hospitalizations between January and June 2020",
+     "query_intent": "visits_date_range",
+     "entities": [],
+     "temporal_constraint": {
+       "start_date": "2020-01-01",
+       "end_date": "2020-06-30"
+     },
+     "additional_filters": null
+   }
+
+   Example 6 - Query where concept not found:
+   {
+     "user_query": "How many patients are in the database?",
+     "query_intent": "patient_count",
+     "entities": [],
+     "temporal_constraint": null,
+     "additional_filters": null
+   }
+
    CRITICAL:
    - Use the actual concept_id, concept_code, vocabulary_id from your database queries!
    - Return ONLY the JSON - no markdown, no extra text!
@@ -138,8 +190,14 @@ Extract medical terms from the user query and map them to OMOP concept codes by 
 
 - **query_intent**: MUST always be a descriptive string (never null). Create an appropriate classification for ANY query type.
 - **entities**: Can be empty [] for queries without medical concepts. Otherwise, query database for EVERY medical term.
-- **For medical terms**: Include concept_id, concept_code, vocabulary_id, and domain_id for EVERY entity from database queries.
-- **temporal_constraint**: Extract time windows if mentioned (e.g., "within 60 days", "90 days apart"). Set to null if none.
+- **For medical terms**: Include concept_id, concept_code, vocabulary_id, and domain_id for EVERY entity from database queries. If a concept cannot be found, you can set these fields to null.
+- **temporal_constraint**: Be flexible! Extract any temporal information:
+  - Relative windows: {"window_days": 90, "constraint_type": "within"}
+  - Specific years: {"year": 1990, "constraint_type": "diagnosis_year"}
+  - Date ranges: {"start_date": "2020-01-01", "end_date": "2020-06-30"}
+  - Grouping: {"group_by": "year_of_prescription"}
+  - Any other temporal pattern that captures the query's meaning
+  - Set to null if no temporal aspect
 - **additional_filters**: Use for any other query constraints (age ranges, gender, date ranges, etc.)
 - **domain_id**: Always use exact value from database: "Drug", "Condition", "Procedure", etc.
 
