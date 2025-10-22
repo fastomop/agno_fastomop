@@ -17,7 +17,9 @@ dependencies = [
     "ollama>=0.1.0",
     "sentence-transformers>=2.2.0",
     "tomli>=2.0.0",
-    "websockets>=12.0"
+    "websockets>=12.0",
+    "nest-asyncio>=1.5.0",
+    "opentelemetry-api>=1.20.0"
 ]
 
 [project.optional-dependencies]

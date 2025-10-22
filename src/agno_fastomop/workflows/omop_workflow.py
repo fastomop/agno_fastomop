@@ -3,6 +3,7 @@ from agno.tools.mcp import MCPTools
 from agno_fastomop.agents.semantic import create_semantic_agent
 from agno_fastomop.agents.database import create_database_agent
 from agno_fastomop.config import config
+from agno_fastomop.observability.trace_context import write_trace_context_otel, clear_trace_context
 from langfuse import observe, Langfuse
 import asyncio
 import os
@@ -25,11 +26,17 @@ async def initialize_workflow():
             return _omop_workflow
 
         # Create ONE MCP connection (shared by both agents to avoid DuckDB lock)
+        # Pass Langfuse credentials to OMCP subprocess for trace propagation
         omcp_config = config["omcp"]
         _mcp_tools = MCPTools(
             transport=omcp_config["transport"],
             command=omcp_config["command"],
-            env={"DB_PATH": os.getenv("DB_PATH", "")}
+            env={
+                "DB_PATH": os.getenv("DB_PATH", ""),
+                "LANGFUSE_PUBLIC_KEY": os.getenv("LANGFUSE_PUBLIC_KEY", ""),
+                "LANGFUSE_SECRET_KEY": os.getenv("LANGFUSE_SECRET_KEY", ""),
+                "LANGFUSE_HOST": os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+            }
         )
 
         # Manually connect MCP once
@@ -65,6 +72,14 @@ async def run_omop_query(user_query: str) -> str:
     Run OMOP clinical query via Workflow
     Initializes on first call, reuses for subsequent queries
     """
+    # Inject current OpenTelemetry trace context for OMCP subprocess
+    # This uses W3C Trace Context format (traceparent/tracestate)
+    try:
+        write_trace_context_otel()
+    except Exception as e:
+        # Non-critical: if trace context extraction fails, continue without it
+        print(f"Warning: Could not inject OpenTelemetry trace context: {e}")
+
     workflow = await initialize_workflow()
     response = await workflow.arun(user_query)
     return response

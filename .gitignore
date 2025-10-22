@@ -1,6 +1,7 @@
 # Environment variables and local config
 .env
 config.local.toml
+.claude
 
 # Virtual environments
 .venv/
