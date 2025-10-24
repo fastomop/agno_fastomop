@@ -5,13 +5,19 @@ Supports W3C Trace Context format via OpenTelemetry propagation.
 """
 import json
 import os
+import platform
+import tempfile
 from pathlib import Path
 from typing import Optional, Dict
 from opentelemetry.propagate import inject
 
 
-# Shared trace context file path
-TRACE_CONTEXT_FILE = Path("/tmp/.fastomop_langfuse_trace_context.json")
+# Use platform-specific temp directory for cross-platform compatibility
+if platform.system() == "Windows":
+    TRACE_CONTEXT_FILE = Path(tempfile.gettempdir()) / ".fastomop_langfuse_trace_context.json"
+else:
+    # On Unix-like systems (macOS/Linux), use /tmp for consistency
+    TRACE_CONTEXT_FILE = Path("/tmp") / ".fastomop_langfuse_trace_context.json"
 
 
 def write_trace_context_otel(session_id: Optional[str] = None) -> None:

@@ -105,8 +105,8 @@ def run_experiment(dataset_name: str = "foem",
 if __name__ == "__main__":
     # Run experiment on the "foem" dataset
     result = run_experiment(
-        dataset_name="foem_100_sql",
-        experiment_name="foem_100_sql test",
+        dataset_name="foem_20_sql",
+        experiment_name="foem_20_sql test",
         experiment_description="Testing the complete agentic workflow on FOEM dataset",
-        max_concurrency=5  # Limit the concurrent queries (adjust as needed)
+        max_concurrency=1  # Limit the concurrent queries (adjust as needed)
     )

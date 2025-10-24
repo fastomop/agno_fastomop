@@ -4,9 +4,10 @@ from agno_fastomop.agents.semantic import create_semantic_agent
 from agno_fastomop.agents.database import create_database_agent
 from agno_fastomop.config import config
 from agno_fastomop.observability.trace_context import write_trace_context_otel, clear_trace_context
-from langfuse import observe, Langfuse
+from langfuse import observe, Langfuse, get_client
 import asyncio
 import os
+import json
 
 # Module-level storage for workflow (created once, reused)
 _omop_workflow = None
@@ -66,6 +67,139 @@ async def initialize_workflow():
         return _omop_workflow
 
 
+def extract_final_query_from_step(step_response) -> str:
+    """
+    Extract final query from a single step's response (database agent).
+
+    Args:
+        step_response: Agent's RunResponse object
+
+    Returns:
+        str: The final successful query, or None if not found
+    """
+    final_query = None
+
+    try:
+        # Check if step_response has messages
+        messages = []
+        if hasattr(step_response, 'messages') and step_response.messages:
+            messages = step_response.messages
+        elif hasattr(step_response, 'run_response') and hasattr(step_response.run_response, 'messages'):
+            messages = step_response.run_response.messages
+
+        # Iterate through messages to find tool calls
+        for message in messages:
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    # Extract tool name
+                    tool_name = None
+                    if hasattr(tool_call, 'function') and tool_call.function:
+                        if hasattr(tool_call.function, 'name'):
+                            tool_name = tool_call.function.name
+                        elif hasattr(tool_call, 'tool_name'):
+                            tool_name = tool_call.tool_name
+
+                    # Check if this is a select_query call
+                    if tool_name == 'select_query':
+                        # Check if it was successful (no error)
+                        # tool_call_error == False or missing means success
+                        has_error = getattr(tool_call, 'tool_call_error', False)
+
+                        if not has_error:
+                            # Successful call - extract the query from arguments
+                            args = None
+                            if hasattr(tool_call, 'function') and tool_call.function:
+                                if hasattr(tool_call.function, 'arguments'):
+                                    try:
+                                        args_raw = tool_call.function.arguments
+                                        args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+                                    except:
+                                        pass
+                            elif hasattr(tool_call, 'tool_args'):
+                                args = tool_call.tool_args
+
+                            if args and 'query' in args:
+                                final_query = args['query']
+
+    except Exception as e:
+        print(f"Warning: Could not extract final query from step: {e}")
+
+    return final_query
+
+
+def extract_final_query(workflow_response) -> str:
+    """
+    Extract the final successful query from tool execution history.
+    Looks for the last select_query tool call where isError == False.
+
+    Args:
+        workflow_response: The workflow RunOutput containing execution history
+
+    Returns:
+        str: The final successful query, or None if not found
+    """
+    final_query = None
+
+    try:
+        # Method 1: Check step_executor_runs (matches Langfuse output structure)
+        if hasattr(workflow_response, 'step_executor_runs') and workflow_response.step_executor_runs:
+            # Iterate through step executor runs in reverse (most recent first)
+            for step_run in reversed(workflow_response.step_executor_runs):
+                if hasattr(step_run, 'tools') and step_run.tools:
+                    # Look through tools in reverse order (last tool call first)
+                    for tool in reversed(step_run.tools):
+                        # Check if this is a Select_Query tool
+                        tool_name = getattr(tool, 'tool_name', None)
+                        if tool_name == 'Select_Query':
+                            # Check if it succeeded (isError == False)
+                            result = getattr(tool, 'result', None)
+                            if result:
+                                is_error = False
+                                # Check for isError in result
+                                if hasattr(result, 'isError'):
+                                    is_error = result.isError
+                                elif isinstance(result, dict) and 'isError' in result:
+                                    is_error = result['isError']
+
+                                if not is_error:
+                                    # Successful query - extract it
+                                    tool_args = getattr(tool, 'tool_args', None)
+                                    if tool_args:
+                                        if isinstance(tool_args, dict) and 'query' in tool_args:
+                                            final_query = tool_args['query']
+                                            break
+                                        elif hasattr(tool_args, 'query'):
+                                            final_query = tool_args.query
+                                            break
+
+                if final_query:
+                    break
+
+        # Method 2: Check if workflow has step_responses
+        if not final_query and hasattr(workflow_response, 'step_responses') and workflow_response.step_responses:
+            # Database agent is the second step (index 1)
+            for step_response in reversed(workflow_response.step_responses):
+                query = extract_final_query_from_step(step_response)
+                if query:
+                    final_query = query
+                    break
+
+        # Method 3: Check direct messages in workflow response
+        if not final_query:
+            final_query = extract_final_query_from_step(workflow_response)
+
+        # Method 4: Access through run_response
+        if not final_query and hasattr(workflow_response, 'run_response'):
+            final_query = extract_final_query_from_step(workflow_response.run_response)
+
+    except Exception as e:
+        import traceback
+        print(f"Warning: Could not extract final query: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+
+    return final_query
+
+
 @observe() #Complete langfuse tracing
 async def run_omop_query(user_query: str) -> str:
     """
@@ -82,6 +216,37 @@ async def run_omop_query(user_query: str) -> str:
 
     workflow = await initialize_workflow()
     response = await workflow.arun(user_query)
+
+    # Extract final successful query from tool execution history
+    try:
+        final_query = extract_final_query(response)
+
+        if final_query:
+            # Add final_query to Langfuse trace output (V3 API)
+            # Preserve existing output and add final_query field
+            langfuse = get_client()
+
+            # Get existing output from response
+            existing_output = {}
+            if hasattr(response, 'to_dict'):
+                existing_output = response.to_dict()
+            elif hasattr(response, '__dict__'):
+                existing_output = {k: v for k, v in response.__dict__.items() if not k.startswith('_')}
+
+            # Add final_query to existing output
+            existing_output['final_query'] = final_query
+
+            langfuse.update_current_trace(
+                output=existing_output
+            )
+        else:
+            print("WARNING: No final query found in response")
+
+    except Exception as e:
+        import traceback
+        print(f"ERROR: Could not update trace with final query: {e}")
+        print(f"ERROR traceback: {traceback.format_exc()}")
+
     return response
 
 
