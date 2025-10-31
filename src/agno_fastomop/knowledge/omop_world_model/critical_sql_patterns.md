@@ -43,7 +43,7 @@ LIMIT 1000;
 ### Template (Drug at Age)
 ```sql
 WITH drug_concepts AS (
-    SELECT ca.descendant_concept_id AS concept_id
+    SELECT COALESCE(std.concept_id, seed.concept_id) AS concept_id
     FROM (
         SELECT c.concept_id
         FROM base.concept c
@@ -51,10 +51,9 @@ WITH drug_concepts AS (
           AND c.concept_code = '[CODE]'
           AND c.invalid_reason IS NULL
     ) seed
-    JOIN base.concept_relationship cr ON seed.concept_id = cr.concept_id_1
+    LEFT JOIN base.concept_relationship cr ON seed.concept_id = cr.concept_id_1
      AND cr.relationship_id = 'Maps to'
-    JOIN base.concept std ON cr.concept_id_2 = std.concept_id
-    JOIN base.concept_ancestor ca ON std.concept_id = ca.ancestor_concept_id
+    LEFT JOIN base.concept std ON cr.concept_id_2 = std.concept_id
 )
 SELECT COUNT(DISTINCT p.person_id)
 FROM base.person p
@@ -84,7 +83,88 @@ WHERE EXTRACT(YEAR FROM co.condition_start_date) - p.year_of_birth = 18
 
 **Critical requirement:** Use UNION to combine patient sets, count DISTINCT
 
-### Template (Two Drugs)
+### Template (Two Drugs - INGREDIENT LEVEL with Hierarchy Expansion)
+
+**When to use:** Entity concept_names are ingredient-level only (e.g., "Hydrochlorothiazide", "Terfenadine")
+- No "MG", "ML", "ACTUAT" in concept_name
+- No "Oral Tablet", "Inhaler", "Injector" in concept_name
+- Query intent is broad (any formulation)
+
+**CRITICAL:** Use this template EXACTLY as written. Do NOT rename CTEs. The _hierarchy CTEs MUST use ca.descendant_concept_id to expand ingredient to all formulations.
+
+```sql
+WITH drug_a_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_A]'
+      AND c.concept_code = '[CODE_A]'
+      AND c.invalid_reason IS NULL
+),
+drug_a_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM drug_a_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+drug_a_hierarchy AS (
+    -- ⭐ HIERARCHY EXPANSION via concept_ancestor
+    SELECT DISTINCT ca.descendant_concept_id AS concept_id
+    FROM drug_a_standard std
+    JOIN base.concept c ON std.standard_id = c.concept_id
+    JOIN base.concept_ancestor ca
+      ON c.concept_id = ca.ancestor_concept_id
+    UNION
+    -- Include the ingredient concept itself
+    SELECT std.standard_id AS concept_id
+    FROM drug_a_standard std
+),
+drug_b_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_B]'
+      AND c.concept_code = '[CODE_B]'
+      AND c.invalid_reason IS NULL
+),
+drug_b_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM drug_b_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+drug_b_hierarchy AS (
+    -- ⭐ HIERARCHY EXPANSION via concept_ancestor
+    SELECT DISTINCT ca.descendant_concept_id AS concept_id
+    FROM drug_b_standard std
+    JOIN base.concept c ON std.standard_id = c.concept_id
+    JOIN base.concept_ancestor ca
+      ON c.concept_id = ca.ancestor_concept_id
+    UNION
+    -- Include the ingredient concept itself
+    SELECT std.standard_id AS concept_id
+    FROM drug_b_standard std
+)
+SELECT COUNT(DISTINCT person_id) FROM (
+    SELECT DISTINCT person_id
+    FROM base.drug_exposure
+    WHERE drug_concept_id IN (SELECT concept_id FROM drug_a_hierarchy)
+    UNION
+    SELECT DISTINCT person_id
+    FROM base.drug_exposure
+    WHERE drug_concept_id IN (SELECT concept_id FROM drug_b_hierarchy)
+) AS combined
+LIMIT 1000;
+```
+
+### Template (Two Drugs - FORMULATION SPECIFIC without Hierarchy)
+
+**When to use:** Entity concept_names contain specific formulation details
+- Contains "MG", "ML", "ACTUAT" (specific strength)
+- Contains "Oral Tablet", "Inhaler", "Injector" (specific form)
+- Contains "NDA" codes (specific product)
+- Query explicitly specifies exact formulation
+
 ```sql
 WITH drug_a_seed AS (
     SELECT c.concept_id
@@ -101,9 +181,8 @@ drug_a_standard AS (
      AND cr.relationship_id = 'Maps to'
 ),
 drug_a_concepts AS (
-    SELECT ca.descendant_concept_id AS concept_id
+    SELECT std.standard_id AS concept_id
     FROM drug_a_standard std
-    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
 ),
 drug_b_seed AS (
     SELECT c.concept_id
@@ -120,9 +199,8 @@ drug_b_standard AS (
      AND cr.relationship_id = 'Maps to'
 ),
 drug_b_concepts AS (
-    SELECT ca.descendant_concept_id AS concept_id
+    SELECT std.standard_id AS concept_id
     FROM drug_b_standard std
-    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
 )
 SELECT COUNT(DISTINCT person_id) FROM (
     SELECT DISTINCT person_id
@@ -192,7 +270,80 @@ LIMIT 1000;
 
 **Critical requirement:** Use EXISTS clauses to find patients having BOTH
 
-### Template (Two Drugs)
+**IMPORTANT:** For ingredient-level drugs, use hierarchy expansion (same logic as UNION queries above)
+
+### Template (Two Drugs - with Hierarchy if Ingredient Level)
+
+**If entities are ingredient-level (no MG/ML/Tablet), use hierarchy expansion:**
+
+```sql
+WITH drug_a_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_A]'
+      AND c.concept_code = '[CODE_A]'
+      AND c.invalid_reason IS NULL
+),
+drug_a_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM drug_a_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+drug_a_hierarchy AS (
+    -- Use this CTE for ingredient-level concepts
+    SELECT DISTINCT ca.descendant_concept_id AS concept_id
+    FROM drug_a_standard std
+    JOIN base.concept c ON std.standard_id = c.concept_id
+    JOIN base.concept_ancestor ca
+      ON c.concept_id = ca.ancestor_concept_id
+    UNION
+    SELECT std.standard_id AS concept_id
+    FROM drug_a_standard std
+),
+drug_b_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_B]'
+      AND c.concept_code = '[CODE_B]'
+      AND c.invalid_reason IS NULL
+),
+drug_b_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM drug_b_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+drug_b_hierarchy AS (
+    -- Use this CTE for ingredient-level concepts
+    SELECT DISTINCT ca.descendant_concept_id AS concept_id
+    FROM drug_b_standard std
+    JOIN base.concept c ON std.standard_id = c.concept_id
+    JOIN base.concept_ancestor ca
+      ON c.concept_id = ca.ancestor_concept_id
+    UNION
+    SELECT std.standard_id AS concept_id
+    FROM drug_b_standard std
+)
+SELECT COUNT(DISTINCT p.person_id)
+FROM base.person p
+WHERE EXISTS (
+    SELECT 1 FROM base.drug_exposure de1
+    WHERE de1.person_id = p.person_id
+      AND de1.drug_concept_id IN (SELECT concept_id FROM drug_a_hierarchy)
+)
+AND EXISTS (
+    SELECT 1 FROM base.drug_exposure de2
+    WHERE de2.person_id = p.person_id
+      AND de2.drug_concept_id IN (SELECT concept_id FROM drug_b_hierarchy)
+)
+LIMIT 1000;
+```
+
+**If entities are formulation-specific (have MG/ML/Tablet), use direct matching:**
+
 ```sql
 WITH drug_a_seed AS (
     SELECT c.concept_id
@@ -209,9 +360,8 @@ drug_a_standard AS (
      AND cr.relationship_id = 'Maps to'
 ),
 drug_a_concepts AS (
-    SELECT ca.descendant_concept_id AS concept_id
+    SELECT std.standard_id AS concept_id
     FROM drug_a_standard std
-    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
 ),
 drug_b_seed AS (
     SELECT c.concept_id
@@ -228,9 +378,8 @@ drug_b_standard AS (
      AND cr.relationship_id = 'Maps to'
 ),
 drug_b_concepts AS (
-    SELECT ca.descendant_concept_id AS concept_id
+    SELECT std.standard_id AS concept_id
     FROM drug_b_standard std
-    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
 )
 SELECT COUNT(DISTINCT p.person_id)
 FROM base.person p
@@ -278,9 +427,8 @@ drug1_standard AS (
      AND cr.relationship_id = 'Maps to'
 ),
 drug1_concepts AS (
-    SELECT ca.descendant_concept_id AS concept_id
+    SELECT std.standard_id AS concept_id
     FROM drug1_standard std
-    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
 ),
 drug2_seed AS (
     SELECT c.concept_id
@@ -297,9 +445,8 @@ drug2_standard AS (
      AND cr.relationship_id = 'Maps to'
 ),
 drug2_concepts AS (
-    SELECT ca.descendant_concept_id AS concept_id
+    SELECT std.standard_id AS concept_id
     FROM drug2_standard std
-    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
 ),
 drug3_seed AS (
     SELECT c.concept_id
@@ -316,9 +463,8 @@ drug3_standard AS (
      AND cr.relationship_id = 'Maps to'
 ),
 drug3_concepts AS (
-    SELECT ca.descendant_concept_id AS concept_id
+    SELECT std.standard_id AS concept_id
     FROM drug3_standard std
-    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
 ),
 drug4_seed AS (
     SELECT c.concept_id
@@ -335,9 +481,8 @@ drug4_standard AS (
      AND cr.relationship_id = 'Maps to'
 ),
 drug4_concepts AS (
-    SELECT ca.descendant_concept_id AS concept_id
+    SELECT std.standard_id AS concept_id
     FROM drug4_standard std
-    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
 )
 SELECT COUNT(DISTINCT p.person_id)
 FROM base.person p

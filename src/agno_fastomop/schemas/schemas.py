@@ -11,6 +11,11 @@ class ConceptMapping(BaseModel):
                          "Race", "Ethnicity", "Visit"]] = None
     concept_id: Optional[int] = None
 
+    # NEW: Intelligent concept selection fields
+    selection_reasoning: Optional[str] = None  # Explanation of why this concept was chosen
+    alternative_concepts_considered: Optional[List[int]] = None  # Other concept IDs evaluated
+    estimated_patient_count: Optional[int] = None  # Patient count from database usage check
+
 class TemporalConstraint(BaseModel):
     """Flexible temporal constraint - structure varies by query type.
 

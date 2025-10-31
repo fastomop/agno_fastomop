@@ -13,7 +13,7 @@ def create_semantic_agent(mcp_tools: MCPTools) -> Agent:
     Create semantic agent using FastOMOP's approach: direct SQL queries to concept table.
 
     Simple and effective: Query OMOP concept table with LIKE searches via shared MCP.
-    No embeddings, no Milvus - just SQL.
+    Uses intelligent LLM-based concept selection with database usage checks.
 
     Args:
         mcp_tools: Shared MCP connection (avoids DuckDB lock)
@@ -43,7 +43,7 @@ def create_semantic_agent(mcp_tools: MCPTools) -> Agent:
         model=model,
         instructions=system_prompt,
         db=db,  # Shared database for conversation history and memory
-        tools=[mcp_tools],  # Shared MCP to query concept table
+        tools=[mcp_tools],  # Use MCP tools directly for database queries
         output_schema=SemanticContext,  # Structured output for workflow step passing
         reasoning=agent_config.get("reasoning", False),
         markdown=False,  # Don't format as markdown - return raw JSON

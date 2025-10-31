@@ -14,6 +14,7 @@ model_id = "gpt-4-turbo-preview"
 provider = "azure"
 model_id = "gpt-4.1"
 api_version = "2025-01-01-preview"
+temperature = 0.0  # Deterministic responses
 
 [models.providers.ollama]
 provider = "ollama"
