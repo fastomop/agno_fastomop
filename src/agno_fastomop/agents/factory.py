@@ -19,7 +19,8 @@ def create_model(config: Dict) -> Any:
         return AzureOpenAI(id=model_id,
                            api_version=config.get("api_version", "2024-10-21"),
                            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-                           azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT")
+                           azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+                           temperature=config.get("temperature")
                            )
     elif model_type == "openai":
         return OpenAIChat(id=model_id)

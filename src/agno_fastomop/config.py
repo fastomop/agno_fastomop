@@ -69,6 +69,7 @@ def get_agent_config(agent_name:str) -> Dict[str, Any]:
     #Add azure specifics
     if provider == "azure":
         complete_config["api_version"] = provider_config.get("api_version", "2024-10-21")
+        complete_config["temperature"] = provider_config.get("temperature")
 
     return complete_config
 
