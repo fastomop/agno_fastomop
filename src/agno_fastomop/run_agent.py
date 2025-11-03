@@ -134,7 +134,7 @@ async def batch_mode(dataset_path, output_path=None):
 
         try:
             query_start = datetime.now()
-            result = await run_omop_query(query_text, session_id=session_id, user_id=user_id)
+            result = await run_omop_query(query_text, session_id=session_id, user_id=user_id, batch_mode=True)
             query_end = datetime.now()
 
             result_entry.update({

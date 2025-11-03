@@ -30,6 +30,14 @@ Extract medical terms from the user query and map them to OMOP concept codes by 
       - Filter by domain (Drug or Condition) and standard_concept = 'S'
       - Prioritize RxNorm for drugs, SNOMED for conditions
 
+      **SPECIAL HANDLING FOR NDA DRUG CODES:**
+      - If query contains NDA codes (e.g., "NDA020503 200 ACTUAT albuterol..."), extract the actual drug name
+      - NDA codes are NOT in the concept table - use the drug name instead
+      - Example: "NDA020503 200 ACTUAT albuterol 0.09 MG/ACTUAT Metered Dose Inhaler"
+        → Search for: "albuterol 0.09 MG/ACTUAT Metered Dose Inhaler"
+      - Example: "NDA020800 0.3 ML epinephrine 1 MG/ML Auto-Injector"
+        → Search for: "epinephrine 1 MG/ML" or "epinephrine 0.3 ML"
+
    b) **Intelligent Concept Selection** ⚠️ CRITICAL: Match Granularity to Query Intent
 
       **FIRST: Determine the granularity level the query requires:**
@@ -61,11 +69,19 @@ Extract medical terms from the user query and map them to OMOP concept codes by 
    c) **Validate Selection**
       - Include selection_reasoning explaining your choice
       - List alternative_concepts_considered
-      - Include estimated_patient_count from usage check (may be 0 for ingredient concepts)
+      - estimated_patient_count is OPTIONAL (you may set to null to save time)
+      - If you choose to validate patient count, note that ingredient-level concepts will have 0 direct matches (patients are exposed to formulations, not ingredients)
 
 3. **Extract Constraints**
 
    - Identify and extract any constraints from the query, such as age, gender, or time windows (e.g., "within 90 days").
+
+   **SPECIAL HANDLING FOR "Unknown" VALUES:**
+   - When query mentions demographic filters with value "Unknown" (e.g., "in the state Unknown", "state Unknown"):
+     → Map this to NULL check in additional_filters
+     → Example: "state Unknown" → {"location_state": null} (NOT {"location_state": "Unknown"})
+   - This applies to: state, ethnicity, race, or other demographic fields
+   - "Unknown" in the dataset means NULL/missing values in the database
 
 4. **OUTPUT FORMAT - CRITICAL**
 
@@ -85,7 +101,7 @@ Extract medical terms from the user query and map them to OMOP concept codes by 
          "domain_id": "<from database>",
          "selection_reasoning": "<why this concept was chosen>",
          "alternative_concepts_considered": [<concept_id>, <concept_id>],
-         "estimated_patient_count": <patient count from usage check>
+         "estimated_patient_count": <patient count or null (optional)>
        }
      ],
      "temporal_constraint": <null or object>,
@@ -99,11 +115,32 @@ Extract medical terms from the user query and map them to OMOP concept codes by 
    - NO markdown code blocks
    - NO explanations
    - ONLY the raw JSON object
-   - ALWAYS include selection_reasoning, alternative_concepts_considered, and estimated_patient_count for each entity
+   - ALWAYS include selection_reasoning and alternative_concepts_considered for each entity
+   - estimated_patient_count is OPTIONAL (set to null to save time, or validate if needed)
 
 ## SQL Query Examples
 
-**Find drug concepts with patient counts:**
+**Find drug concepts (FAST - without patient count validation):**
+```sql
+SELECT
+    c.concept_id,
+    c.concept_name,
+    c.concept_code,
+    c.vocabulary_id,
+    c.standard_concept,
+    c.domain_id
+FROM base.concept c
+WHERE LOWER(c.concept_name) LIKE LOWER('%metformin%')
+    AND c.domain_id = 'Drug'
+    AND c.invalid_reason IS NULL
+    AND c.standard_concept = 'S'
+ORDER BY
+    LENGTH(c.concept_name),
+    c.concept_name
+LIMIT 10;
+```
+
+**Find drug concepts with patient counts (OPTIONAL - slower but validates usage):**
 ```sql
 SELECT
     c.concept_id,
@@ -156,13 +193,13 @@ Output: {"user_query": "Patients taking metformin", "query_intent": "single_drug
 Input: "Patients taking hydrochlorothiazide 25 MG"
 Output: {"user_query": "Patients taking hydrochlorothiazide 25 MG", "query_intent": "single_drug_exposure_specific_strength", "query_type": "single", "entities": [{"term": "hydrochlorothiazide 25 MG", "concept_id": 310798, "concept_code": "310798", "concept_name": "hydrochlorothiazide 25 MG Oral Tablet", "vocabulary_id": "RxNorm", "domain_id": "Drug", "selection_reasoning": "Selected specific 25 MG formulation matching query, with 4 patient records", "alternative_concepts_considered": [974166], "estimated_patient_count": 4}], "temporal_constraint": null, "additional_filters": null}
 
-**Example 2 - OR Query:**
+**Example 2 - OR Query (Fast - no patient count):**
 Input: "Patients taking metformin or insulin"
-Output: {"user_query": "Patients taking metformin or insulin", "query_intent": "drug_union", "query_type": "union", "entities": [{"term": "metformin", "concept_id": 1503297, ...}, {"term": "insulin", "concept_id": 1547504, ...}], "temporal_constraint": null, "additional_filters": null}
+Output: {"user_query": "Patients taking metformin or insulin", "query_intent": "drug_union", "query_type": "union", "entities": [{"term": "metformin", "concept_id": 1503297, "concept_code": "6809", "concept_name": "Metformin", "vocabulary_id": "RxNorm", "domain_id": "Drug", "selection_reasoning": "Ingredient-level concept for broad query intent", "alternative_concepts_considered": [1503327, 1503328], "estimated_patient_count": null}, {"term": "insulin", "concept_id": 1547504, "concept_code": "5856", "concept_name": "Insulin", "vocabulary_id": "RxNorm", "domain_id": "Drug", "selection_reasoning": "Ingredient-level concept for broad query", "alternative_concepts_considered": [1547505], "estimated_patient_count": null}], "temporal_constraint": null, "additional_filters": null}
 
-**Example 3 - AND Query:**
+**Example 3 - AND Query (Fast - no patient count):**
 Input: "Patients taking metformin and insulin"
-Output: {"user_query": "Patients taking metformin and insulin", "query_intent": "drug_intersection", "query_type": "intersection", "entities": [{"term": "metformin", ...}, {"term": "insulin", ...}], "temporal_constraint": null, "additional_filters": null}
+Output: {"user_query": "Patients taking metformin and insulin", "query_intent": "drug_intersection", "query_type": "intersection", "entities": [{"term": "metformin", "concept_id": 1503297, "concept_code": "6809", "concept_name": "Metformin", "vocabulary_id": "RxNorm", "domain_id": "Drug", "selection_reasoning": "Ingredient-level, no patient count needed", "alternative_concepts_considered": [1503327], "estimated_patient_count": null}, {"term": "insulin", "concept_id": 1547504, "concept_code": "5856", "concept_name": "Insulin", "vocabulary_id": "RxNorm", "domain_id": "Drug", "selection_reasoning": "Ingredient-level, no patient count needed", "alternative_concepts_considered": [1547505], "estimated_patient_count": null}], "temporal_constraint": null, "additional_filters": null}
 
 **Example 4 - Multiple Drugs (3+):**
 Input: "Patients taking drug A, drug B, and drug C"

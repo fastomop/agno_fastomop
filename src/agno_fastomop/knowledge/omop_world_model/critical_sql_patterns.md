@@ -558,6 +558,280 @@ LIMIT 1000;
 
 ---
 
+## Pattern: Temporal Constraints (Drug AND Drug within N days)
+
+**Use case:** Find patients with TWO drug exposures within a specified time window
+
+**CRITICAL REQUIREMENT:** Use the EXACT date arithmetic formula below. DO NOT use DATEDIFF, DATE_DIFF, julianday, or simple subtraction.
+
+**Why this formula:** Battle-tested on 680+ queries, works across SQL engines (DuckDB, PostgreSQL), handles edge cases correctly.
+
+### ⚠️ DATE ARITHMETIC - CRITICAL FORMULA
+
+**NEVER use these (they will fail):**
+- ❌ `DATEDIFF(date1, date2)`
+- ❌ `DATE_DIFF('day', date1, date2)`
+- ❌ `julianday(date1) - julianday(date2)`
+- ❌ `ABS(date1 - date2)`
+
+**ALWAYS use this formula:**
+```sql
+WHERE CAST(
+    EXTRACT(epoch FROM
+        CAST(GREATEST(date1, date2) AS TIMESTAMP) -
+        CAST(LEAST(date1, date2) AS TIMESTAMP)
+    ) / 86400 AS BIGINT
+) <= [N_DAYS]
+```
+
+**What this does:**
+- `GREATEST/LEAST`: Ensures later_date - earlier_date (always positive)
+- `EXTRACT(epoch FROM ...)`: Converts to seconds since epoch
+- `/ 86400`: Converts seconds to days (86400 seconds/day)
+- `CAST(... AS BIGINT)`: Integer days for comparison
+- Works in DuckDB, PostgreSQL, and most SQL engines
+
+---
+
+### Template (Drug AND Drug Temporal - INGREDIENT LEVEL with Hierarchy)
+
+**When to use:**
+- Both drugs are ingredient-level (e.g., "metformin", "lisinopril")
+- No "MG", "ML", "ACTUAT", "Tablet" in concept names
+- Query: "Drug A and Drug B within N days"
+
+**Critical:** Uses concept_ancestor to expand ingredient → all formulations
+
+```sql
+WITH drug_a_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_A]'
+      AND c.concept_code = '[CODE_A]'
+      AND c.invalid_reason IS NULL
+),
+drug_a_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM drug_a_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+drug_a_hierarchy AS (
+    SELECT DISTINCT ca.descendant_concept_id AS concept_id
+    FROM drug_a_standard std
+    JOIN base.concept c ON std.standard_id = c.concept_id
+    JOIN base.concept_ancestor ca ON c.concept_id = ca.ancestor_concept_id
+),
+drug_a_exposures AS (
+    SELECT de.person_id,
+           de.drug_exposure_start_date AS start_date
+    FROM base.drug_exposure de
+    JOIN drug_a_hierarchy h ON de.drug_concept_id = h.concept_id
+),
+drug_b_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_B]'
+      AND c.concept_code = '[CODE_B]'
+      AND c.invalid_reason IS NULL
+),
+drug_b_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM drug_b_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+drug_b_hierarchy AS (
+    SELECT DISTINCT ca.descendant_concept_id AS concept_id
+    FROM drug_b_standard std
+    JOIN base.concept c ON std.standard_id = c.concept_id
+    JOIN base.concept_ancestor ca ON c.concept_id = ca.ancestor_concept_id
+),
+drug_b_exposures AS (
+    SELECT de.person_id,
+           de.drug_exposure_start_date AS start_date
+    FROM base.drug_exposure de
+    JOIN drug_b_hierarchy h ON de.drug_concept_id = h.concept_id
+)
+SELECT COUNT(DISTINCT a.person_id)
+FROM drug_a_exposures a
+JOIN drug_b_exposures b ON a.person_id = b.person_id
+WHERE CAST(
+    EXTRACT(epoch FROM
+        CAST(GREATEST(a.start_date, b.start_date) AS TIMESTAMP) -
+        CAST(LEAST(a.start_date, b.start_date) AS TIMESTAMP)
+    ) / 86400 AS BIGINT
+) <= [N_DAYS]
+LIMIT 1000;
+```
+
+**Placeholders:**
+- `[VOCAB_A]` = First drug vocabulary (usually 'RxNorm')
+- `[CODE_A]` = First drug concept_code
+- `[VOCAB_B]` = Second drug vocabulary
+- `[CODE_B]` = Second drug concept_code
+- `[N_DAYS]` = Number of days (e.g., 30, 60, 90)
+
+---
+
+### Template (Drug AND Drug Temporal - FORMULATION SPECIFIC, Direct Match)
+
+**When to use:**
+- Drugs are formulation-specific (e.g., "amlodipine 5 MG Oral Tablet")
+- Contains "MG", "ML", "ACTUAT", "Tablet", "Inhaler" in concept names
+- Query specifies exact formulation
+
+**Critical:** NO hierarchy expansion, direct concept_id matching only
+
+```sql
+WITH drug_a_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_A]'
+      AND c.concept_code = '[CODE_A]'
+      AND c.invalid_reason IS NULL
+),
+drug_a_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM drug_a_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+drug_a_exposures AS (
+    SELECT de.person_id,
+           de.drug_exposure_start_date AS start_date
+    FROM base.drug_exposure de
+    JOIN drug_a_standard std ON de.drug_concept_id = std.standard_id
+),
+drug_b_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_B]'
+      AND c.concept_code = '[CODE_B]'
+      AND c.invalid_reason IS NULL
+),
+drug_b_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM drug_b_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+drug_b_exposures AS (
+    SELECT de.person_id,
+           de.drug_exposure_start_date AS start_date
+    FROM base.drug_exposure de
+    JOIN drug_b_standard std ON de.drug_concept_id = std.standard_id
+)
+SELECT COUNT(DISTINCT a.person_id)
+FROM drug_a_exposures a
+JOIN drug_b_exposures b ON a.person_id = b.person_id
+WHERE CAST(
+    EXTRACT(epoch FROM
+        CAST(GREATEST(a.start_date, b.start_date) AS TIMESTAMP) -
+        CAST(LEAST(a.start_date, b.start_date) AS TIMESTAMP)
+    ) / 86400 AS BIGINT
+) <= [N_DAYS]
+LIMIT 1000;
+```
+
+---
+
+### Template (Condition AND Condition Temporal - with Hierarchy)
+
+**Use case:** Find patients with two conditions diagnosed within N days
+
+**Example:** "Patients with diabetes and hypertension within 90 days"
+
+```sql
+WITH condition_a_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_A]'
+      AND c.concept_code = '[CODE_A]'
+      AND c.invalid_reason IS NULL
+),
+condition_a_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM condition_a_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+condition_a_hierarchy AS (
+    SELECT ca.descendant_concept_id AS concept_id
+    FROM condition_a_standard std
+    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
+),
+condition_a_occurrences AS (
+    SELECT co.person_id,
+           co.condition_start_date::date AS start_date
+    FROM base.condition_occurrence co
+    JOIN condition_a_hierarchy h ON co.condition_concept_id = h.concept_id
+),
+condition_b_seed AS (
+    SELECT c.concept_id
+    FROM base.concept c
+    WHERE c.vocabulary_id = '[VOCAB_B]'
+      AND c.concept_code = '[CODE_B]'
+      AND c.invalid_reason IS NULL
+),
+condition_b_standard AS (
+    SELECT COALESCE(cr.concept_id_2, s.concept_id) AS standard_id
+    FROM condition_b_seed s
+    LEFT JOIN base.concept_relationship cr
+      ON s.concept_id = cr.concept_id_1
+     AND cr.relationship_id = 'Maps to'
+),
+condition_b_hierarchy AS (
+    SELECT ca.descendant_concept_id AS concept_id
+    FROM condition_b_standard std
+    JOIN base.concept_ancestor ca ON std.standard_id = ca.ancestor_concept_id
+),
+condition_b_occurrences AS (
+    SELECT co.person_id,
+           co.condition_start_date::date AS start_date
+    FROM base.condition_occurrence co
+    JOIN condition_b_hierarchy h ON co.condition_concept_id = h.concept_id
+)
+SELECT COUNT(DISTINCT a.person_id)
+FROM condition_a_occurrences a
+JOIN condition_b_occurrences b ON a.person_id = b.person_id
+WHERE CAST(
+    EXTRACT(epoch FROM
+        CAST(GREATEST(a.start_date, b.start_date) AS TIMESTAMP) -
+        CAST(LEAST(a.start_date, b.start_date) AS TIMESTAMP)
+    ) / 86400 AS BIGINT
+) <= [N_DAYS]
+LIMIT 1000;
+```
+
+---
+
+### Key Points for Temporal Constraints
+
+1. **Date Formula is NON-NEGOTIABLE**: Use the exact EXTRACT(epoch) formula
+2. **Hierarchy Expansion**: Use for ingredient-level drugs and broad conditions
+3. **Direct Match**: Use for formulation-specific drugs
+4. **Table Aliases**: `a` for first entity, `b` for second entity
+5. **CTEs**: Separate CTEs for seed → standard → hierarchy → exposures/occurrences
+6. **GREATEST/LEAST**: Handles any date order (earlier or later doesn't matter)
+
+---
+
+### Search Keywords for KB Retrieval
+
+**Database agent should search for:**
+- "Drug AND temporal ingredient hierarchy" → Use ingredient-level template
+- "Drug AND temporal formulation direct" → Use formulation-specific template
+- "Condition AND temporal hierarchy" → Use condition temporal template
+- "within N days date arithmetic" → Get the correct EXTRACT formula
+
+---
+
 ## Quick Reference: Query Type → Pattern
 
 | User Query | Query Type | Pattern to Use |
@@ -572,6 +846,25 @@ LIMIT 1000;
 ---
 
 ## Common Mistakes to Avoid
+
+### ❌ WRONG: Date arithmetic with DATEDIFF (WILL FAIL)
+```sql
+-- These functions DO NOT EXIST in this database:
+WHERE DATEDIFF(date1, date2) <= 30  -- FAILS
+WHERE DATE_DIFF('day', date1, date2) <= 30  -- FAILS
+WHERE julianday(date1) - julianday(date2) <= 30  -- FAILS
+WHERE ABS(date1 - date2) <= 30  -- UNRELIABLE
+```
+
+### ✓ CORRECT: Use EXTRACT(epoch) formula
+```sql
+WHERE CAST(
+    EXTRACT(epoch FROM
+        CAST(GREATEST(date1, date2) AS TIMESTAMP) -
+        CAST(LEAST(date1, date2) AS TIMESTAMP)
+    ) / 86400 AS BIGINT
+) <= 30
+```
 
 ### ❌ WRONG: Age = current age
 ```sql

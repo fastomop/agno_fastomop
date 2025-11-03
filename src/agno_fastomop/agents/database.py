@@ -51,7 +51,7 @@ def create_database_agent(mcp_tools: MCPTools) -> Agent:
     )
     knowledge = Knowledge(
         vector_db=vectordb,
-        max_results=5,
+        max_results=2,  # Reduced from 5 to speed up context processing
     )
 
     #Create agent with connected MCP tools

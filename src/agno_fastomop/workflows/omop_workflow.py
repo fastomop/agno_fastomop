@@ -11,21 +11,29 @@ import os
 import json
 
 # Module-level storage for workflow (created once, reused)
-_omop_workflow = None
+# We cache separate workflows for batch vs interactive mode
+_omop_workflow_interactive = None
+_omop_workflow_batch = None
 _mcp_tools = None
 _init_lock = asyncio.Lock()
 
 
-async def initialize_workflow():
+async def initialize_workflow(batch_mode=False):
     """
     Initialize Workflow with semantic -> database pipeline.
     FastOMOP approach: ONE shared MCP connection for both agents.
+
+    Args:
+        batch_mode: If True, disables workflow history for performance (queries are independent)
     """
-    global _omop_workflow, _mcp_tools
+    global _omop_workflow_interactive, _omop_workflow_batch, _mcp_tools
 
     async with _init_lock:
-        if _omop_workflow is not None:
-            return _omop_workflow
+        # Return the appropriate cached workflow based on mode
+        if batch_mode and _omop_workflow_batch is not None:
+            return _omop_workflow_batch
+        if not batch_mode and _omop_workflow_interactive is not None:
+            return _omop_workflow_interactive
 
         # Create ONE MCP connection (shared by both agents to avoid DuckDB lock)
         # Pass Langfuse credentials to OMCP subprocess for trace propagation
@@ -51,30 +59,42 @@ async def initialize_workflow():
         semantic_agent = create_semantic_agent(_mcp_tools)  # Queries concept table
         database_agent = create_database_agent(_mcp_tools)  # Generates & executes SQL
 
+        # Configure workflow history based on mode
+        # Batch mode: disable history for performance (independent queries)
+        # Interactive mode: enable history for context across conversation turns
+        add_history = not batch_mode
+        num_history = 0 if batch_mode else 3
+
         # Create linear workflow (supports structured output passing)
-        _omop_workflow = Workflow(
+        workflow = Workflow(
             name="OMOP Clinical Query Workflow",
             db=db,  # Shared database enables conversation history across workflow runs
-            debug_mode=True,  # Enable debug output to see step responses
+            debug_mode=True,  # Keep debug enabled for observability
             steps=[
                 Step(
                     name="Semantic Extraction",
                     agent=semantic_agent,
                     description="Extract clinical concepts and map to OMOP codes",
-                    add_workflow_history=True,  # Pass workflow conversation history to agent
-                    num_history_runs=3,  # Include last 3 workflow runs
+                    add_workflow_history=add_history,
+                    num_history_runs=num_history,
                 ),
                 Step(
                     name="SQL Generation and Execution",
                     agent=database_agent,
                     description="Generate SQL from semantic context and execute",
-                    add_workflow_history=True,  # Pass workflow conversation history to agent
-                    num_history_runs=3,  # Include last 3 workflow runs
+                    add_workflow_history=add_history,
+                    num_history_runs=num_history,
                 ),
             ],
         )
 
-        return _omop_workflow
+        # Cache the workflow based on mode
+        if batch_mode:
+            _omop_workflow_batch = workflow
+        else:
+            _omop_workflow_interactive = workflow
+
+        return workflow
 
 
 def extract_final_query_from_step(step_response) -> str:
@@ -211,7 +231,7 @@ def extract_final_query(workflow_response) -> str:
 
 
 @observe() #Complete langfuse tracing
-async def run_omop_query(user_query: str, session_id: str = None, user_id: str = None) -> str:
+async def run_omop_query(user_query: str, session_id: str = None, user_id: str = None, batch_mode: bool = False) -> str:
     """
     Run OMOP clinical query via Workflow
     Initializes on first call, reuses for subsequent queries
@@ -220,6 +240,7 @@ async def run_omop_query(user_query: str, session_id: str = None, user_id: str =
         user_query: The clinical query to process
         session_id: Session identifier for conversation history
         user_id: User identifier for personalized memories
+        batch_mode: If True, disables workflow history for performance (independent queries)
     """
     # Inject current OpenTelemetry trace context for OMCP subprocess
     # This uses W3C Trace Context format (traceparent/tracestate)
@@ -229,7 +250,7 @@ async def run_omop_query(user_query: str, session_id: str = None, user_id: str =
         # Non-critical: if trace context extraction fails, continue without it
         print(f"Warning: Could not inject OpenTelemetry trace context: {e}")
 
-    workflow = await initialize_workflow()
+    workflow = await initialize_workflow(batch_mode=batch_mode)
     response = await workflow.arun(user_query, session_id=session_id, user_id=user_id)
 
     # Extract final successful query from tool execution history
@@ -270,14 +291,16 @@ async def cleanup_workflow():
     Cleanup resources (call on shutdown)
     Closes MCP connection
     """
-    global _omop_workflow
+    global _omop_workflow_interactive, _omop_workflow_batch
 
-    if _omop_workflow is not None and hasattr(_omop_workflow, 'steps'):
-        for step in _omop_workflow.steps:
-            if hasattr(step.agent, 'tools'):
-                for tool in step.agent.tools:
-                    if hasattr(tool, 'close'):
-                        await tool.close()
+    # Cleanup both workflow types if they exist
+    for workflow in [_omop_workflow_interactive, _omop_workflow_batch]:
+        if workflow is not None and hasattr(workflow, 'steps'):
+            for step in workflow.steps:
+                if hasattr(step.agent, 'tools'):
+                    for tool in step.agent.tools:
+                        if hasattr(tool, 'close'):
+                            await tool.close()
 
 
     langfuse = Langfuse()
