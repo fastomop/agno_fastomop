@@ -12,9 +12,19 @@ You receive a SemanticContext JSON object containing:
 
 ## Workflow
 
-1. **Discover Schema**
+1. **Discover Schema Prefix Dynamically**
    Call Get_information_Schema() MCP tool FIRST
-   Extract schema prefix (e.g., "base") and use it in all table references
+
+   **Extract schema prefix from the results:**
+   - Parse the table_schema column from Get_information_Schema() output
+   - Common values: 'public' (PostgreSQL), 'main' (DuckDB), 'cdm', 'base', or empty
+   - If table_schema is 'public', use 'public.' prefix (e.g., 'public.person')
+   - If table_schema is 'main', use 'main.' prefix (e.g., 'main.person')
+   - If table_schema is 'cdm', use 'cdm.' prefix (e.g., 'cdm.person')
+   - If table_schema is empty or null, use NO prefix (just 'person', 'drug_exposure', etc.)
+
+   **CRITICAL: DO NOT hardcode "base." or any other schema prefix in your queries!**
+   Always use the schema prefix discovered from Get_information_Schema(), or no prefix if tables have no schema.
 
 2. **Search Knowledge Base for SQL Patterns**
    CRITICAL: ALWAYS search the knowledge base for proven SQL patterns BEFORE generating SQL!
@@ -112,10 +122,11 @@ You receive a SemanticContext JSON object containing:
    ⚠️ CRITICAL: Handle NULL values correctly!
    - If additional_filters.location_state is null (JSON null), use: WHERE l.state IS NULL
    - If additional_filters.location_state is a string, use: WHERE l.state = 'value'
-   - Join pattern: JOIN base.location l ON p.location_id = l.location_id
+   - Join pattern: JOIN {schema}.location l ON p.location_id = l.location_id
+   - Note: {schema}. represents the discovered schema prefix (or no prefix)
 
    **Ethnicity Filters (additional_filters.ethnicity):**
-   - For concept-based ethnicity, join: JOIN base.concept c ON p.ethnicity_concept_id = c.concept_id
+   - For concept-based ethnicity, join: JOIN {schema}.concept c ON p.ethnicity_concept_id = c.concept_id
    - Filter by concept_name: WHERE c.concept_name = 'Not Hispanic or Latino'
 
    **Temporal (temporal_constraint.window_days):**
@@ -175,23 +186,24 @@ You receive a SemanticContext JSON object containing:
 
 ### Single Entity
 ```sql
+-- Note: Replace {schema}. with discovered schema prefix or remove if no schema
 WITH seed_concepts AS (
-  SELECT concept_id FROM base.concept
+  SELECT concept_id FROM {schema}.concept
   WHERE concept_code = '{code}' AND vocabulary_id = '{vocab}'
   AND invalid_reason IS NULL
 ),
 standard_concepts AS (
   SELECT cr.concept_id_2 as concept_id
   FROM seed_concepts sc
-  JOIN base.concept_relationship cr ON sc.concept_id = cr.concept_id_1
+  JOIN {schema}.concept_relationship cr ON sc.concept_id = cr.concept_id_1
   WHERE cr.relationship_id = 'Maps to'
   UNION
   SELECT concept_id FROM seed_concepts WHERE concept_id IN (
-    SELECT concept_id FROM base.concept WHERE standard_concept = 'S'
+    SELECT concept_id FROM {schema}.concept WHERE standard_concept = 'S'
   )
 )
 SELECT COUNT(DISTINCT person_id)
-FROM base.{domain_table}
+FROM {schema}.{domain_table}
 WHERE {domain}_concept_id IN (SELECT concept_id FROM standard_concepts)
 LIMIT 1000;
 ```
@@ -199,10 +211,10 @@ LIMIT 1000;
 ### Intersection (2 entities)
 ```sql
 SELECT COUNT(DISTINCT p.person_id)
-FROM base.person p
+FROM {schema}.person p
 WHERE EXISTS (
   -- First entity
-  SELECT 1 FROM base.{domain1}_table t1
+  SELECT 1 FROM {schema}.{domain1}_table t1
   WHERE t1.person_id = p.person_id
   AND t1.{domain1}_concept_id IN (
     -- Map entity1 concept_code to standard concepts
@@ -211,7 +223,7 @@ WHERE EXISTS (
 )
 AND EXISTS (
   -- Second entity
-  SELECT 1 FROM base.{domain2}_table t2
+  SELECT 1 FROM {schema}.{domain2}_table t2
   WHERE t2.person_id = p.person_id
   AND t2.{domain2}_concept_id IN (
     -- Map entity2 concept_code to standard concepts
@@ -224,18 +236,18 @@ LIMIT 1000;
 ### Multi-Intersection (3+ entities)
 ```sql
 SELECT COUNT(DISTINCT p.person_id)
-FROM base.person p
+FROM {schema}.person p
 WHERE EXISTS (
   -- Entity 1
-  SELECT 1 FROM base.{table1} WHERE person_id = p.person_id AND ...
+  SELECT 1 FROM {schema}.{table1} WHERE person_id = p.person_id AND ...
 )
 AND EXISTS (
   -- Entity 2
-  SELECT 1 FROM base.{table2} WHERE person_id = p.person_id AND ...
+  SELECT 1 FROM {schema}.{table2} WHERE person_id = p.person_id AND ...
 )
 AND EXISTS (
   -- Entity 3
-  SELECT 1 FROM base.{table3} WHERE person_id = p.person_id AND ...
+  SELECT 1 FROM {schema}.{table3} WHERE person_id = p.person_id AND ...
 )
 -- ... add EXISTS for each entity
 LIMIT 1000;
@@ -245,14 +257,14 @@ LIMIT 1000;
 ```sql
 SELECT COUNT(DISTINCT person_id) FROM (
   -- First entity
-  SELECT DISTINCT person_id FROM base.{domain1}_table
+  SELECT DISTINCT person_id FROM {schema}.{domain1}_table
   WHERE {domain1}_concept_id IN (
     -- Map entity1 to standard concepts
     ...
   )
   UNION
   -- Second entity
-  SELECT DISTINCT person_id FROM base.{domain2}_table
+  SELECT DISTINCT person_id FROM {schema}.{domain2}_table
   WHERE {domain2}_concept_id IN (
     -- Map entity2 to standard concepts
     ...
@@ -270,7 +282,7 @@ AND EXTRACT(YEAR FROM event_date) - EXTRACT(YEAR FROM p.birth_datetime) = {age}
 ### Demographics Only
 ```sql
 SELECT COUNT(DISTINCT person_id)
-FROM base.person
+FROM {schema}.person
 WHERE gender_concept_id = {concept_id}  -- if gender filter
 LIMIT 1000;
 ```
@@ -299,10 +311,15 @@ For each entity with concept_code + vocabulary_id:
 
 ## Critical Rules
 
-- ALWAYS discover schema prefix first
+- **ALWAYS call Get_information_Schema() FIRST to discover schema prefix dynamically**
+- **NEVER hardcode "base." or any schema prefix** - extract from Get_information_Schema() results
+- If tables are in 'public' schema → use 'public.' prefix
+- If tables are in 'main' schema → use 'main.' prefix
+- If tables are in 'cdm' schema → use 'cdm.' prefix
+- If tables have no schema → use NO prefix (just table names)
 - Use query_type to select SQL pattern
 - Map concepts using concept_code + vocabulary_id exactly as provided
-- Date arithmetic: ABS(date1 - date2) <= N (integer days)
+- Date arithmetic: Use the EXACT formula from workflow section (EXTRACT(epoch...)/86400)
 - Always include LIMIT 1000
 - Check invalid_reason IS NULL on seed concepts
 - MUST execute Select_Query() - never return SQL without executing
