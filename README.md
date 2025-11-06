@@ -262,6 +262,16 @@ Batch mode accepts multiple JSON formats:
 }
 ```
 
+### Web Interface
+
+Launch the web-based interface powered by AgentOS:
+
+```bash
+uv run python -m agno_fastomop.web_interface
+```
+
+Access the interface at `http://localhost:7777`. The web UI provides real-time query submission and workflow execution monitoring. Auto-reload is disabled to prevent DuckDB file locking conflicts.
+
 ## Architecture
 
 ### Workflow Pattern (Current)
