@@ -1,0 +1,114 @@
+# Shared configuration for all FastOMOP services
+x-fastomop-common: &fastomop-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: fastomop:latest
+
+  environment:
+    # Ollama configuration - connect to remote GPU node
+    - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:8002}
+
+    # Database configuration
+    - DB_PATH=${DB_PATH:-/app/data/omop.duckdb}
+
+    # Langfuse observability (optional)
+    - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+    - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+    - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+
+    # Milvus (optional)
+    - MILVUS_HOST=${MILVUS_HOST:-localhost}
+    - MILVUS_PORT=${MILVUS_PORT:-19530}
+    - MILVUS_COLLECTION=${MILVUS_COLLECTION:-fastomop_vocab}
+
+  volumes:
+    # Configuration files
+    - ./config.toml:/app/config.toml:ro
+
+    # Data directory for DuckDB and knowledge base
+    - ./data:/app/data
+
+    # Optional: mount prompts for easy editing
+    - ./src/agno_fastomop/prompts:/app/src/agno_fastomop/prompts:ro
+
+    # Optional: mount knowledge base
+    - ./src/agno_fastomop/knowledge:/app/src/agno_fastomop/knowledge
+
+  network_mode: "host"
+
+  deploy:
+    resources:
+      limits:
+        cpus: '4'
+        memory: 8G
+      reservations:
+        cpus: '2'
+        memory: 4G
+
+services:
+  # Web Interface (default, long-running service)
+  web:
+    <<: *fastomop-common
+    container_name: fastomop-web
+    restart: unless-stopped
+
+    ports:
+      - "7777:7777"
+
+    command: ["python", "-m", "agno_fastomop.web_interface"]
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7777/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Interactive CLI Mode (one-off)
+  cli:
+    <<: *fastomop-common
+    container_name: fastomop-cli
+    profiles: ["cli"]  # Only run when explicitly called
+
+    stdin_open: true
+    tty: true
+
+    command: ["python", "-m", "agno_fastomop.run_agent"]
+
+  # Batch Processing Mode (one-off)
+  batch:
+    <<: *fastomop-common
+    container_name: fastomop-batch
+    profiles: ["batch"]  # Only run when explicitly called
+
+    volumes:
+      # Inherit common volumes
+      - ./config.toml:/app/config.toml:ro
+      - ./data:/app/data
+      - ./src/agno_fastomop/prompts:/app/src/agno_fastomop/prompts:ro
+      - ./src/agno_fastomop/knowledge:/app/src/agno_fastomop/knowledge
+
+      # Mount queries directory for batch processing
+      - ./queries:/app/queries
+
+    command: ["python", "-m", "agno_fastomop.run_agent", "--batch", "/app/queries/queries.json"]
+
+  # Bootstrap/Utility Service (one-off)
+  bootstrap:
+    <<: *fastomop-common
+    container_name: fastomop-bootstrap
+    profiles: ["bootstrap"]  # Only run when explicitly called
+
+    command: ["python", "-m", "agno_fastomop.bootstrap"]
+
+# Optional: Define volumes for better data management
+volumes:
+  fastomop_data:
+    driver: local
