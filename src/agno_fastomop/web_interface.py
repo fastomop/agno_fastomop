@@ -16,6 +16,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from agno.os import AgentOS
 from agno_fastomop.workflows.omop_workflow import initialize_workflow, cleanup_workflow
+from agno_fastomop.workflows.imaging_workflow import initialize_imaging_workflow, cleanup_imaging_workflow
 from agno_fastomop.agents.factory import create_model
 from agno_fastomop.config import config
 from agno.db.sqlite import SqliteDb
@@ -24,6 +25,7 @@ import uvicorn
 
 # Global storage
 _workflow = None
+_imaging_workflow = None
 _agents = None
 _omop_team_conv = None
 _omop_team_complex = None
@@ -37,19 +39,27 @@ async def app_lifespan(app):
     # Startup: nothing to do (workflow already initialized)
     yield
     # Shutdown: cleanup MCP subprocess to release DuckDB lock
-    print("Shutting down FastOMOP - cleaning up MCP connections...")
+    print("Shutting down FastOMOP - cleaning up connections...")
     await cleanup_workflow()
+    await cleanup_imaging_workflow()
     print("Cleanup complete")
 
 
 async def initialize():
     """Initialize workflow and create AgentOS - all in the same event loop"""
-    global _workflow, _agents, _omop_team, _agent_os, _app
+    global _workflow, _imaging_workflow, _agents, _omop_team, _agent_os, _app
 
     print("Initializing FastOMOP workflow...")
     _workflow = await initialize_workflow()
     _agents = [step.agent for step in _workflow.steps]
-    print("✓ Workflow initialized")
+    print("✓ OMOP workflow initialized")
+
+    # Initialize imaging workflow (separate from OMOP)
+    print("Initializing imaging workflow...")
+    _imaging_workflow = await initialize_imaging_workflow()
+    _imaging_agent = _imaging_workflow.steps[0].agent
+    _agents.append(_imaging_agent)
+    print("✓ Imaging workflow initialized")
 
     # Get default model config from config.local.toml
     team_model_config = {
@@ -149,14 +159,14 @@ async def initialize():
     _agent_os = AgentOS(
         name="FastOMOP",
         description="Natural language interface for OMOP clinical databases",
-        workflows=[_workflow],    # Option 1: Full workflow (cloud UI)
-        teams=[_omop_team_conv, _omop_team_complex],        # Option 2: Team (local UI - Team mode)
-        agents=_agents,            # Option 3: Individual agents (local UI - Agent mode)
+        workflows=[_workflow, _imaging_workflow],  # OMOP + Imaging workflows
+        teams=[_omop_team_conv, _omop_team_complex],
+        agents=_agents,            # All agents including imaging
         lifespan=app_lifespan,
     )
 
     _app = _agent_os.get_app()
-    print("✓ AgentOS created with workflow, team, and individual agents")
+    print("✓ AgentOS created with OMOP workflow, imaging workflow, teams, and individual agents")
 
 
 async def main():

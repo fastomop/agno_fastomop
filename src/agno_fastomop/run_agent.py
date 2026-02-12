@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 from datetime import datetime
 from uuid import uuid4
+from typing import Optional
 
 
 async def interactive_session():
@@ -192,13 +193,123 @@ async def batch_mode(dataset_path, output_path=None):
     return True
 
 
+async def imaging_session():
+    """Interactive CLI session for the imaging agent"""
+    from agno_fastomop.workflows.imaging_workflow import (
+        run_imaging_query,
+        run_imaging_query_local,
+        cleanup_imaging_workflow,
+    )
+
+    print("Welcome to FastOMOP - Clinical Imaging Analysis")
+    print("=" * 50)
+    print("Modes:")
+    print("  Remote: Fetch image from HPC node via SSH")
+    print("  Local:  Analyze a local image file")
+    print("=" * 50)
+
+    session_id = str(uuid4())
+    user_id = "default_user"
+    print(f"Session ID: {session_id}")
+
+    try:
+        while True:
+            print("\nOptions:")
+            print("  [r] Analyze remote HPC image")
+            print("  [l] Analyze local image")
+            print("  [exit] Quit")
+            choice = input("Choice: ").strip().lower()
+
+            if choice == "exit":
+                print("Shutting down...")
+                await cleanup_imaging_workflow()
+                print("Goodbye!")
+                break
+
+            if choice == "r":
+                remote_path = input("Remote image path (on HPC): ").strip()
+                if not remote_path:
+                    print("Path cannot be empty")
+                    continue
+
+                message = input("Your question about the image: ").strip()
+                if not message:
+                    message = "Analyze this image and describe your findings."
+
+                metadata_str = input("Metadata JSON (optional, press Enter to skip): ").strip()
+                metadata = None
+                if metadata_str:
+                    try:
+                        metadata = json.loads(metadata_str)
+                    except json.JSONDecodeError:
+                        print("Warning: Invalid JSON, proceeding without metadata")
+
+                try:
+                    print("Fetching image and running analysis...")
+                    response = await run_imaging_query(
+                        remote_path=remote_path,
+                        message=message,
+                        metadata=metadata,
+                        session_id=session_id,
+                        user_id=user_id,
+                    )
+                    print("=" * 50)
+                    print(response.content)
+                    print("=" * 50)
+                except Exception as e:
+                    print(f"Error: {e}")
+
+            elif choice == "l":
+                local_path = input("Local image path: ").strip()
+                if not local_path or not Path(local_path).exists():
+                    print(f"File not found: {local_path}")
+                    continue
+
+                message = input("Your question about the image: ").strip()
+                if not message:
+                    message = "Analyze this image and describe your findings."
+
+                metadata_str = input("Metadata JSON (optional, press Enter to skip): ").strip()
+                metadata = None
+                if metadata_str:
+                    try:
+                        metadata = json.loads(metadata_str)
+                    except json.JSONDecodeError:
+                        print("Warning: Invalid JSON, proceeding without metadata")
+
+                try:
+                    print("Running analysis...")
+                    response = await run_imaging_query_local(
+                        image_path=local_path,
+                        message=message,
+                        metadata=metadata,
+                        session_id=session_id,
+                        user_id=user_id,
+                    )
+                    print("=" * 50)
+                    print(response.content)
+                    print("=" * 50)
+                except Exception as e:
+                    print(f"Error: {e}")
+
+            else:
+                print("Unknown option. Use 'r', 'l', or 'exit'.")
+
+    except Exception as e:
+        print(f"Failed: {e}")
+        await cleanup_imaging_workflow()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FastOMOP - OMOP Clinical Query Workflow")
     parser.add_argument("--batch", type=str, help="Path to the dataset file")
     parser.add_argument("--output", type=str, help="Path to the output file")
+    parser.add_argument("--imaging", action="store_true", help="Run imaging analysis mode")
     args = parser.parse_args()
 
-    if args.batch:
+    if args.imaging:
+        asyncio.run(imaging_session())
+    elif args.batch:
         asyncio.run(batch_mode(args.batch, args.output))
     else:
         asyncio.run(interactive_session())

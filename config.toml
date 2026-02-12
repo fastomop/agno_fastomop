@@ -24,6 +24,10 @@ model_id = "gpt-oss:20b"
 provider = "ollama"
 model_id = "qwen2.5:7b"
 
+[models.providers.ollama_medgemma]
+provider = "ollama"
+model_id = "MedAIBase/MedGemma1.5:4b"
+
 [agents.database]
 name = "OMOP Database Agent"
 model_provider = "ollama"
@@ -45,6 +49,20 @@ model_provider = "ollama"
 prompt_name = "supervisor"
 prompt_label = "dev"
 reasoning = false
+
+[agents.imaging]
+name = "Clinical Imaging Agent"
+model_provider = "ollama_medgemma"
+prompt_name = "imaging_agent"
+prompt_label = "dev"
+reasoning = false
+markdown = true     # Override with HPC_PORT env var
+
+[hpc]
+host = ""          # Override with HPC_HOST env var
+username = ""      # Override with HPC_USER env var
+ssh_key_path = ""  # Override with HPC_SSH_KEY_PATH env var
+port = 22          # Override with HPC_PORT env var
 
 [omcp]
 transport = "stdio"
