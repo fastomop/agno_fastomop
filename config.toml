@@ -1,6 +1,6 @@
 [models]
 default_provider = "ollama"
-default_id = "gpt-oss-20b"
+default_id = "gpt-oss:20b"
 
 [models.providers.anthropic]
 provider = "anthropic"
@@ -26,7 +26,7 @@ model_id = "qwen2.5:7b"
 
 [agents.database]
 name = "OMOP Database Agent"
-model_provider = "azure"
+model_provider = "ollama"
 prompt_name = "database_agent"
 prompt_label = "dev"
 reasoning = false
@@ -34,21 +34,21 @@ markdown = false
 
 [agents.semantic]
 name = "OMOP Semantic Agent"
-model_provider = "azure"
+model_provider = "ollama"
 prompt_name = "semantic_agent"
 prompt_label = "dev"
 reasoning = false  # Disable reasoning - output_schema enforces JSON, reasoning adds explanatory text
 
 [agents.orchestrator]
 name = "OMOP Orchestrator"
-model_provider = "azure"
+model_provider = "ollama"
 prompt_name = "supervisor"
 prompt_label = "dev"
 reasoning = false
 
 [omcp]
 transport = "stdio"
-command = "uv run --directory /path/to/your/omcp-version"
+command = "uv run --directory /Users/k24118093/Documents/omcp_server python src/omcp/main.py"
 
 [milvus]
 host = "localhost"

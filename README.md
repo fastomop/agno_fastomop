@@ -270,7 +270,16 @@ Launch the web-based interface powered by AgentOS:
 uv run python -m agno_fastomop.web_interface
 ```
 
-Access the interface at `http://localhost:7777`. The web UI provides real-time query submission and workflow execution monitoring. Auto-reload is disabled to prevent DuckDB file locking conflicts.
+The backend runs at `http://localhost:7777` and exposes the API (workflows, agents). To use the **web UI** (chat, workflow execution, monitoring), you must connect it via the **AgentOS Control Plane**:
+
+1. With the backend running, open [os.agno.com](https://os.agno.com) and sign in
+2. Click **"Add new OS"**
+3. Add your instance:
+   - **Endpoint URL**: `http://localhost:7777` (or `http://<your-ip>:7777` for network access)
+   - **OS Name**: e.g. "FastOMOP" or "Development"
+4. Use the Control Plane to chat with agents, run workflows, and view traces.
+
+The Control Plane connects directly from your browser to your AgentOS runtime. Auto-reload is disabled on the backend to prevent DuckDB file locking conflicts.
 
 ## Architecture
 
