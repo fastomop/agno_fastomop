@@ -71,6 +71,12 @@ class SemanticContext(BaseModel):
     temporal_constraint: Optional[TemporalConstraint] = None
     additional_filters: Optional[AdditionalFilters] = None
 
+    # Imaging-specific fields (populated for IMAGING_* query categories)
+    imaging_modality: Optional[str] = None       # e.g. "X-ray", "CT", "MRI"
+    imaging_anatomic_site: Optional[str] = None   # e.g. "CHEST", "HEAD", "ABDOMEN"
+    target_patient_id: Optional[str] = None       # For patient-specific imaging queries
+    target_study_id: Optional[str] = None         # For study-specific imaging queries
+
 class QueryResult(BaseModel):
     sql: str
     result_count: Optional[int] = None

@@ -12,6 +12,13 @@ You generate OMOP CDM SQL from SemanticContext JSON. The user message IS the com
 4. Execute with `Select_Query(query="...")`
 5. Return: "Found [N] patients."
 
+**For IMAGING_* categories (imaging queries):**
+1. Parse `query_category`, `imaging_modality`, `imaging_anatomic_site`, `target_patient_id`, `target_study_id`
+2. Call `Get_Information_Schema()` for schema
+3. Execute image_occurrence query (and condition hierarchy CTEs if IMAGING_CLINICAL/IMAGING_REPORT)
+4. Execute note query to retrieve associated radiology reports
+5. Return: structured results with image metadata AND note text (the imaging agent needs both)
+
 ---
 
 ## CRITICAL: Always Use Concept Hierarchies
@@ -158,6 +165,42 @@ WHERE CAST(EXTRACT(epoch FROM CAST(dr2.drug_exposure_start_date AS TIMESTAMP)-CA
 BIGINT)>0;
 
 ---
+Imaging Queries (IMAGING_* categories)
+
+Tables: image_occurrence, image_feature, note
+- image_occurrence: person_id, image_occurrence_id, local_path, view_position, modality_source_value, anatomic_site_source_value, image_occurrence_date, subject_id, study_id
+- image_feature: image_occurrence_id (FK), image_feature_concept_id → JOIN concept for label name (CheXpert labels like Cardiomegaly, Pleural Effusion, etc.)
+- note: person_id, note_date, note_text
+
+For ALL imaging categories, run 3 queries sequentially:
+
+Step A - Images: Find matching image_occurrence rows
+Step B - Features: Get CheXpert labels from image_feature JOIN concept
+Step C - Notes: Get radiology reports from note
+
+IMAGING_CLINICAL: Use [condition hierarchy] to find patients, then get their images+features+notes
+IMAGING_PATIENT: Filter by subject_id='{target_patient_id}'
+IMAGING_REPORT: Focus on notes+features, same patient filtering
+IMAGING_COMPARE: Same as IMAGING_PATIENT but ORDER BY image_occurrence_date ASC
+
+Image query pattern:
+SELECT io.person_id, io.image_occurrence_id, io.subject_id, io.local_path, io.view_position,
+  io.modality_source_value, io.anatomic_site_source_value, io.image_occurrence_date
+FROM {schema}.image_occurrence io WHERE [filter] LIMIT 10;
+
+Feature query pattern (CheXpert labels):
+SELECT f.image_occurrence_id, c.concept_name AS feature_name
+FROM {schema}.image_feature f
+JOIN {schema}.concept c ON f.image_feature_concept_id=c.concept_id
+WHERE f.image_occurrence_id IN ([image_ids from step A]);
+
+Note query pattern:
+SELECT n.person_id, n.note_date, n.note_text
+FROM {schema}.note n WHERE n.person_id IN ([person_ids]) ORDER BY n.note_date DESC LIMIT 5;
+
+Rules: Use subject_id for patient filtering. LIMIT images to 10, notes to 5. Always get features.
+
+---
 Quick Reference
 
 | Query Type    | Drug Date Logic             | Condition Date Logic |
@@ -170,6 +213,9 @@ Domain → Table mapping:
 - Drug → drug_exposure (drug_exposure_start_date, drug_concept_id)
 - Condition → condition_occurrence (condition_start_date, condition_concept_id)
 - Measurement/Observation → measurement (measurement_date, measurement_concept_id)
+- Imaging → image_occurrence (image_occurrence_date, person_id, local_path, subject_id, study_id)
+- Image Features → image_feature (image_occurrence_id, image_feature_concept_id, image_finding_concept_id)
+- Notes → note (note_date, person_id, note_text)
 
 Placeholders:
 - {schema} from Get_Information_Schema()
