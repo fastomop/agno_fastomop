@@ -15,7 +15,7 @@ async def test_mcp_direct():
     print("Creating MCPTools...")
     mcp_tools = MCPTools(
         transport="stdio",
-        command="uv run --directory /Users/k24118093/Documents/omcp_server python src/omcp/main.py",
+        command=os.getenv("MCP_COMMAND", "uv run --directory /path/to/omcp_server python src/omcp/main.py"),
         env={"DB_PATH": os.getenv("DB_PATH", "")}
     )
 

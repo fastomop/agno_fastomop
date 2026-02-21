@@ -2,8 +2,12 @@
 Quick test script to query patient count via OMCP MCP server
 """
 import asyncio
+import os
+from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+load_dotenv()
 
 
 async def test_patient_count():
@@ -14,12 +18,12 @@ async def test_patient_count():
         args=[
             "run",
             "--directory",
-            "/Users/k24118093/Documents/omcp_server",
+            os.getenv("OMCP_SERVER_PATH", "/path/to/omcp_server"),
             "python",
             "src/omcp/main.py"
         ],
         env={
-            "DB_PATH": "/Users/k24118093/Documents/omcp_server/synthetic_data/synthea.duckdb"
+            "DB_PATH": os.getenv("DB_PATH", "/path/to/omop.duckdb")
         }
     )
 

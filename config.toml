@@ -28,6 +28,10 @@ model_id = "qwen2.5:7b"
 provider = "ollama"
 model_id = "MedAIBase/MedGemma1.5:4b"
 
+[models.providers.ollama_medgemma_27b]
+provider = "ollama_medgemma_tools"
+model_id = "medgemma-tools:27b"
+
 [agents.database]
 name = "OMOP Database Agent"
 model_provider = "ollama"
@@ -56,7 +60,15 @@ model_provider = "ollama_medgemma"
 prompt_name = "imaging_agent"
 prompt_label = "dev"
 reasoning = false
-markdown = true     # Override with HPC_PORT env var
+markdown = true
+
+[agents.ards_orchestrator]
+name = "ARDS Classification Orchestrator"
+model_provider = "ollama_medgemma_27b"
+prompt_name = "ards_classifier"
+prompt_label = "dev"
+reasoning = false
+markdown = true
 
 [hpc]
 host = ""          # Override with HPC_HOST env var
@@ -66,7 +78,7 @@ port = 22          # Override with HPC_PORT env var
 
 [omcp]
 transport = "stdio"
-command = "uv run --directory /Users/k24118093/Documents/omcp_server python src/omcp/main.py"
+command = ""  # Override with MCP_COMMAND env var or set to: uv run --directory /path/to/omcp_server python src/omcp/main.py
 
 [milvus]
 host = "localhost"

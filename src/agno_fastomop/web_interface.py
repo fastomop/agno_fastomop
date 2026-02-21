@@ -21,8 +21,12 @@ from agno_fastomop.workflows.clinical_imaging_pipeline import (
     initialize_clinical_imaging_pipeline,
     make_delegate_to_imaging_with_images_tool,
 )
+from agno_fastomop.tools.ards_classifier import (
+    make_classify_berlin_ards_tool,
+    make_classify_berlin_ards_batch_tool,
+)
 from agno_fastomop.agents.factory import create_model
-from agno_fastomop.config import config
+from agno_fastomop.config import config, get_team_model_config
 from agno.db.sqlite import SqliteDb
 from agno.team import Team
 from agno.compression.manager import CompressionManager
@@ -36,6 +40,7 @@ _agents = None
 _omop_team_conv = None
 _omop_team_complex = None
 _imaging_team = None
+_ards_team = None
 _agent_os = None
 _app = None
 
@@ -54,7 +59,7 @@ async def app_lifespan(app):
 
 async def initialize():
     """Initialize workflow and create AgentOS - all in the same event loop"""
-    global _workflow, _imaging_workflow, _clinical_imaging_pipeline, _agents, _omop_team_conv, _omop_team_complex, _imaging_team, _agent_os, _app
+    global _workflow, _imaging_workflow, _clinical_imaging_pipeline, _agents, _omop_team_conv, _omop_team_complex, _imaging_team, _ards_team, _agent_os, _app
 
     print("Initializing FastOMOP workflow...")
     _workflow = await initialize_workflow()
@@ -77,11 +82,8 @@ async def initialize():
     )
     print("✓ Clinical Imaging Pipeline initialized")
 
-    # Get default model config from config.local.toml
-    team_model_config = {
-        "MODEL_TYPE": config["models"]["default_provider"],
-        "MODEL_ID": config["models"]["default_id"]
-    }
+    # Get team orchestrator model (gpt-oss:120b for existing teams)
+    team_model_config = get_team_model_config()
 
     # Create shared memory db for all agents and team
     shared_db = SqliteDb(db_file="db_agent.db")
@@ -235,6 +237,80 @@ async def initialize():
 
     print("✓ Clinical Imaging Team created")
 
+    # ── Berlin ARDS Classification Team ──────────────────────────────────
+    # Orchestrator model driven by config.toml [agents.ards_orchestrator].model_provider
+    # MedGemma imaging is a mandatory integral component
+    # Reuses semantic, database, and imaging agents
+    # Custom Function tools for deterministic Berlin criteria evaluation
+    print("Initializing Berlin ARDS Classification Team...")
+
+    # ARDS orchestrator model — resolved from config (swap model via config.toml)
+    from agno_fastomop.config import get_agent_config
+    ards_agent_cfg = get_agent_config("ards_orchestrator")
+    ards_model_config = {
+        "MODEL_TYPE": ards_agent_cfg["MODEL_TYPE"],
+        "MODEL_ID": ards_agent_cfg["MODEL_ID"],
+    }
+    if ards_agent_cfg.get("host"):
+        ards_model_config["host"] = ards_agent_cfg["host"]
+
+    # Build ARDS-specific Function tools
+    classify_ards_tool = make_classify_berlin_ards_tool()
+    classify_ards_batch_tool = make_classify_berlin_ards_batch_tool()
+
+    # Load ARDS orchestrator prompt (Langfuse with local fallback)
+    try:
+        from agno_fastomop.observability.tracer import get_langfuse_client
+        langfuse = get_langfuse_client()
+        ards_prompt_obj = langfuse.get_prompt("ards_classifier", label="dev")
+        ards_instructions = ards_prompt_obj.prompt
+        print(f"  Loaded ards_classifier prompt from Langfuse (version: {ards_prompt_obj.version})")
+    except Exception as e:
+        print(f"  Warning: Langfuse prompt load failed: {e}. Using local fallback.")
+        from pathlib import Path
+        ards_prompt_path = Path(__file__).parent / "prompts" / "ards_classifier.txt"
+        with open(ards_prompt_path, "r") as f:
+            ards_instructions = f.read()
+
+    # Aggressive compression for 32K context window
+    ards_compression = CompressionManager(
+        model=create_model(ards_model_config),
+        compress_tool_results=True,
+        compress_token_limit=6000,
+        compress_tool_results_limit=4,
+    )
+
+    _ards_team = Team(
+        name="Berlin ARDS Classification Team",
+        model=create_model(ards_model_config),
+        members=_agents,
+        tools=[
+            classify_ards_tool,
+            classify_ards_batch_tool,
+            delegate_to_imaging_with_images_tool,
+        ],
+        db=shared_db,
+        tool_call_limit=25,
+        enable_user_memories=False,
+        add_history_to_context=False,
+        num_history_runs=0,
+        share_member_interactions=True,
+        search_session_history=False,
+        compress_tool_results=True,
+        compression_manager=ards_compression,
+        stream=False,
+        stream_member_events=True,
+        show_members_responses=True,
+        description=(
+            "Berlin ARDS Classification Team: classifies patients using the Berlin Definition "
+            "of Acute Respiratory Distress Syndrome. Gathers timing, oxygenation, cardiac, "
+            "and imaging data from OMOP CDM. MedGemma CXR analysis is a mandatory integral "
+            "component for bilateral opacities assessment and cardiomegaly detection."
+        ),
+        instructions=ards_instructions,
+    )
+    print(f"✓ Berlin ARDS Classification Team created ({ards_model_config['MODEL_ID']} + MedGemma)")
+
     # Create AgentOS with all options:
     # - workflows: for cloud AgentOS UI
     # - teams: for local Agent UI (Team mode)
@@ -242,14 +318,14 @@ async def initialize():
     _agent_os = AgentOS(
         name="FastOMOP",
         description="Natural language interface for OMOP clinical databases",
-        workflows=[_workflow, _imaging_workflow, _clinical_imaging_pipeline],  # OMOP, Imaging, Pipeline (with image-fetch)
-        teams=[_omop_team_conv, _omop_team_complex, _imaging_team],
-        agents=_agents,            # All agents including imaging
+        workflows=[_workflow, _imaging_workflow, _clinical_imaging_pipeline],
+        teams=[_omop_team_conv, _omop_team_complex, _imaging_team, _ards_team],
+        agents=_agents,
         lifespan=app_lifespan,
     )
 
     _app = _agent_os.get_app()
-    print("✓ AgentOS created with workflows, teams (OMOP + Imaging), and individual agents")
+    print("✓ AgentOS created with workflows, teams (OMOP + Imaging + ARDS), and individual agents")
 
 
 async def main():

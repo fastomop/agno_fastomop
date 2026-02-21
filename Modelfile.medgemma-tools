@@ -1,0 +1,61 @@
+# MedGemma 27B Tool-Calling Modelfile for Ollama
+#
+# This Modelfile adds tool-calling support to MedGemma 27B (Gemma 3 architecture)
+# which does not natively support Ollama's tool-calling API.
+#
+# The TEMPLATE injects tool definitions from {{ .Tools }} into the system turn
+# and instructs the model to output raw JSON tool calls.
+#
+# Usage:
+#   ollama create medgemma-tools:27b -f Modelfile.medgemma-tools
+#   ollama run medgemma-tools:27b
+#
+# Note: Even with this template, the model may wrap JSON in markdown backticks.
+# The MedGemmaOllama agno wrapper (models/medgemma_ollama.py) handles stripping
+# markdown and extracting tool calls from text content.
+
+FROM alibayram/medgemma:27b
+
+PARAMETER temperature 0.1
+PARAMETER num_ctx 32768
+PARAMETER stop "<end_of_turn>"
+
+TEMPLATE """
+{{- range .Messages }}
+{{- if eq .Role "system" }}
+<start_of_turn>system
+{{ .Content }}
+{{- if $.Tools }}
+
+# Tool Use
+
+You have access to tools. When you need to use a tool, respond with ONLY a raw JSON object (NO markdown, NO backticks, NO explanation):
+{"tool_calls": [{"function": {"name": "<tool_name>", "arguments": {<args>}}}]}
+
+Available tools:
+{{- range $.Tools }}
+
+## {{ .Function.Name }}
+{{ .Function.Description }}
+Parameters: {{ .Function.Parameters }}
+{{- end }}
+
+RULES:
+- To call a tool: output ONLY the raw JSON object. No text before or after. No markdown code blocks.
+- To respond to the user: output normal text without any JSON.
+- Never combine a tool call and text in the same response.
+{{- end }}
+<end_of_turn>
+{{- else if eq .Role "user" }}
+<start_of_turn>user
+{{ .Content }}<end_of_turn>
+{{- else if eq .Role "assistant" }}
+<start_of_turn>model
+{{ .Content }}<end_of_turn>
+{{- else if eq .Role "tool" }}
+<start_of_turn>user
+[Tool Result]: {{ .Content }}<end_of_turn>
+{{- end }}
+{{- end }}
+<start_of_turn>model
+"""

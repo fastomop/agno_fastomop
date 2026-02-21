@@ -74,6 +74,31 @@ def get_agent_config(agent_name:str) -> Dict[str, Any]:
     return complete_config
 
 
+def get_team_model_config() -> Dict[str, Any]:
+    """
+    Get model config for Team orchestrators.
+
+    Uses the default model provider from config.toml [models] section.
+    Teams use this model to coordinate agent delegation.
+
+    Returns:
+        Dict with MODEL_TYPE and MODEL_ID keys.
+    """
+    default_provider = config["models"]["default_provider"]
+    provider_config = config["models"]["providers"][default_provider]
+
+    team_config = {
+        "MODEL_TYPE": provider_config["provider"],
+        "MODEL_ID": provider_config["model_id"],
+    }
+
+    # Pass through host if present (e.g. for Ollama providers)
+    if "host" in provider_config:
+        team_config["host"] = provider_config["host"]
+
+    return team_config
+
+
 def validate_config():
     """
     Validate required environment variables based on providers used.
@@ -98,7 +123,7 @@ def validate_config():
     if "openai" in providers_used:
         required_env.append("OPENAI_API_KEY")
 
-    if "ollama" in providers_used:
+    if any(p == "ollama" or p.startswith("ollama_") for p in providers_used):
         required_env.append("OLLAMA_HOST")
 
     if "anthropic" in providers_used:
@@ -110,6 +135,3 @@ def validate_config():
         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
 
 validate_config()
-
-
-    
