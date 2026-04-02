@@ -380,7 +380,7 @@ uv run python -c "from agno_fastomop.config import validate_config; validate_con
 
 ## License
 
-
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Citation
 
