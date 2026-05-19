@@ -48,7 +48,7 @@ async def app_lifespan(app):
 
 async def initialize():
     """Initialize workflow and create AgentOS - all in the same event loop"""
-    global _workflow, _agents, _omop_team, _agent_os, _app
+    global _workflow, _agents, _omop_team_conv, _omop_team_complex, _agent_os, _app
 
     logger.info("Initializing FastOMOP workflow...")
     _workflow = await initialize_workflow()
@@ -171,6 +171,7 @@ async def main():
     validate_config()
     # Initialize everything in this event loop
     await initialize()
+    assert _app is not None, "initialize() must populate the FastAPI app before serving"
 
     # Configure and run uvicorn server
     uvicorn_config = uvicorn.Config(

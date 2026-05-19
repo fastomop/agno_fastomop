@@ -41,7 +41,7 @@ Classify every query into exactly ONE category. The database agent uses this to 
    ├─ + "grouped by year" → ENTITY_GROUP_BY_YEAR
    ├─ condition only → SINGLE_CONDITION
    ├─ drug only → SINGLE_DRUG
-   ├─ observation → SINGLE_OBSERVATION    
+   ├─ observation → SINGLE_OBSERVATION
    └─ procedure only → SINGLE_PROCEDURE
 
 3. Multiple entities with "or"?

@@ -10,6 +10,7 @@ internal dev / evaluation tool. Run it manually with:
 import asyncio
 import logging
 from datetime import datetime
+from typing import Optional
 
 import nest_asyncio
 from langfuse import Langfuse
@@ -58,7 +59,7 @@ def omop_task(item):
 def run_experiment(
     dataset_name: str = "foem",
     experiment_name: str = "FastOMOP Agentic Pipeline",
-    experiment_description: str = None,
+    experiment_description: Optional[str] = None,
     max_concurrency: int = 2,
 ):
     """

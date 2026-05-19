@@ -51,7 +51,9 @@ async def create_supervisor_agent(mcp_tools: MCPTools) -> Agent:
         db=db,  # Shared database for conversation history
         add_history_to_context=True,  # Enable conversation history
         enable_user_memories=True,  # Enable long-term memory
-        tools=[semantic_agent, database_agent],  # Agents can be passed directly as tools
+        # Agents can be passed directly as tools — agno accepts this at runtime
+        # even though its typed signature lists Toolkit/Callable/Function/dict.
+        tools=[semantic_agent, database_agent],  # ty: ignore[invalid-argument-type]
         reasoning=agent_config.get("reasoning", True),
         markdown=agent_config.get("markdown", True),
     )
