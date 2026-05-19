@@ -74,8 +74,8 @@ ignore = [
 # ty is still alpha. Run it via `uv run ty check src` for advisory
 # feedback; not yet wired into prek hooks. CI treats it as non-blocking.
 
-[tool.ty.src]
-root = "src"
+[tool.ty.environment]
+root = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

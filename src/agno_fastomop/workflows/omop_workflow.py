@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from typing import Optional
 
 from agno.compression.manager import CompressionManager
 from agno.db.sqlite import SqliteDb
@@ -73,10 +74,11 @@ async def initialize_workflow(batch_mode=False):
         # Note: DB_PASSWORD can be empty (some PostgreSQL users don't have passwords)
         if db_type == "postgres" or db_type == "postgresql":
             # Check if individual env vars are set (password can be empty, but others should be set)
-            has_individual_vars = all(
-                os.getenv(key) is not None and os.getenv(key).lower() not in ["none"]
-                for key in ["DB_USERNAME", "DB_HOST", "DB_PORT", "DB_DATABASE"]
-            )
+            def _is_real(name: str) -> bool:
+                value = os.getenv(name)
+                return value is not None and value.lower() not in ["none"]
+
+            has_individual_vars = all(_is_real(key) for key in ["DB_USERNAME", "DB_HOST", "DB_PORT", "DB_DATABASE"])
 
             if has_individual_vars:
                 # Use individual environment variables
@@ -213,7 +215,7 @@ async def initialize_workflow(batch_mode=False):
         return workflow
 
 
-def extract_final_query_from_step(step_response) -> str:
+def extract_final_query_from_step(step_response) -> Optional[str]:
     """
     Extract final query from a single step's response (database agent).
 
@@ -273,7 +275,7 @@ def extract_final_query_from_step(step_response) -> str:
     return final_query
 
 
-def extract_raw_result(workflow_response) -> str:
+def extract_raw_result(workflow_response) -> Optional[str]:
     """
     Extract the raw CSV result from the final successful SQL query execution.
 
@@ -341,7 +343,7 @@ def extract_raw_result(workflow_response) -> str:
     return raw_result
 
 
-def extract_final_query(workflow_response) -> str:
+def extract_final_query(workflow_response) -> Optional[str]:
     """
     Extract the final successful query from tool execution history.
     Looks for the last select_query tool call where isError == False.
@@ -413,7 +415,12 @@ def extract_final_query(workflow_response) -> str:
 
 
 @observe()  # Complete langfuse tracing
-async def run_omop_query(user_query: str, session_id: str = None, user_id: str = None, batch_mode: bool = False) -> str:
+async def run_omop_query(
+    user_query: str,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    batch_mode: bool = False,
+):
     """
     Run OMOP clinical query via Workflow
     Initializes on first call, reuses for subsequent queries
