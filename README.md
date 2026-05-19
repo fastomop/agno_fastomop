@@ -26,7 +26,14 @@ FastOMOP uses Python's standard `logging` module. Set the verbosity via the
 default `INFO`):
 
 ```bash
-LOG_LEVEL=DEBUG uv run python -m agno_fastomop.run_agent
+LOG_LEVEL=DEBUG uv run agno_fastomop run
+```
+
+Each subcommand also accepts a CLI-level `--log-level` flag that takes
+precedence over the env var:
+
+```bash
+uv run agno_fastomop run --log-level DEBUG
 ```
 
 Interactive CLI banners (welcome / prompt / goodbye) still go to stdout via
@@ -193,7 +200,7 @@ Upload agent prompts to Langfuse before first use (only required when
 prompt files under `src/agno_fastomop/prompts/`):
 
 ```bash
-uv run python -m agno_fastomop.bootstrap
+uv run agno_fastomop bootstrap
 ```
 
 ## Usage
@@ -201,7 +208,7 @@ uv run python -m agno_fastomop.bootstrap
 ### Interactive Mode
 
 ```bash
-uv run python -m agno_fastomop.run_agent
+uv run agno_fastomop run
 ```
 
 Enter queries at the prompt:
@@ -231,7 +238,7 @@ Create a JSON file with queries:
 Run batch processing:
 
 ```bash
-uv run python -m agno_fastomop.run_agent --batch queries.json
+uv run agno_fastomop run --batch queries.json
 ```
 
 Results are saved to `queries_results.json` with the following structure:
@@ -288,7 +295,7 @@ Batch mode accepts multiple JSON formats:
 Launch the web-based interface powered by AgentOS:
 
 ```bash
-uv run python -m agno_fastomop.web_interface
+uv run agno_fastomop web
 ```
 
 The backend runs at `http://localhost:7777` and exposes the API (workflows, agents). To use the **web UI** (chat, workflow execution, monitoring), you must connect it via the **AgentOS Control Plane**:
@@ -397,10 +404,10 @@ agno_fastomop/
 
 ```bash
 # Run interactive mode with test queries
-uv run python -m agno_fastomop.run_agent
+uv run agno_fastomop run
 
 # Run batch mode with evaluation dataset
-uv run python -m agno_fastomop.run_agent --batch test_queries.json
+uv run agno_fastomop run --batch test_queries.json
 ```
 
 ## Validation

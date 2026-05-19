@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from pathlib import Path
 
@@ -57,7 +56,3 @@ async def main():
         logger.info("Bootstrap completed successfully")
     else:
         logger.error("Bootstrap failed")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
