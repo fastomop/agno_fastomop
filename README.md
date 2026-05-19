@@ -19,6 +19,19 @@ All executions are traced to Langfuse for evaluation and prompt optimization.
 - LLM provider (one of: Azure OpenAI, OpenAI, Anthropic, or Ollama)
 - Langfuse account (optional — enable with `LANGFUSE_ENABLED=true`)
 
+### Logging
+
+FastOMOP uses Python's standard `logging` module. Set the verbosity via the
+`LOG_LEVEL` env var (`DEBUG` | `INFO` | `WARNING` | `ERROR` | `CRITICAL`,
+default `INFO`):
+
+```bash
+LOG_LEVEL=DEBUG uv run python -m agno_fastomop.run_agent
+```
+
+Interactive CLI banners (welcome / prompt / goodbye) still go to stdout via
+`print()` — they are part of the REPL UI, not diagnostic output.
+
 ## Installation
 
 ```bash
@@ -328,6 +341,23 @@ Agent prompts are stored in Langfuse and loaded dynamically:
 Prompts can be versioned and A/B tested through Langfuse.
 
 ## Development
+
+### Tooling
+
+The repository uses the Astral stack:
+
+- **uv** for package management and builds (`uv sync`, `uv build`).
+- **Ruff** for linting and formatting (`uv run ruff check`, `uv run ruff format`).
+- **prek** as a drop-in modern replacement for pre-commit (`uvx prek install`, `uvx prek run --all-files`).
+- **ty** for type checking (alpha; advisory only — `uv run ty check src`).
+- **zensical** for the documentation site (`uv sync --extra docs && uv run zensical serve`).
+
+Install everything in one go:
+
+```bash
+uv sync --all-extras
+uvx prek install
+```
 
 ### Project Structure
 

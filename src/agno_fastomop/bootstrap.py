@@ -1,7 +1,12 @@
-from agno_fastomop.observability.tracer import get_langfuse_client
-from agno_fastomop.config import validate_config
-from pathlib import Path
 import asyncio
+import logging
+from pathlib import Path
+
+from agno_fastomop._logging import setup_logging
+from agno_fastomop.config import validate_config
+from agno_fastomop.observability.tracer import get_langfuse_client
+
+logger = logging.getLogger(__name__)
 
 
 def bootstrap_prompts():
@@ -20,7 +25,7 @@ def bootstrap_prompts():
         prompt_path = prompts_dir / file_name
 
         if not prompt_path.exists():
-            print(f"Error: Prompt file not found: {prompt_path}")
+            logger.error("Prompt file not found: %s", prompt_path)
             return False
 
         prompt_content = prompt_path.read_text()
@@ -32,25 +37,26 @@ def bootstrap_prompts():
                 prompt=prompt_content,
                 labels=["dev"],
             )
-            print(f"Prompt '{prompt_name}' uploaded to Langfuse (version: {prompt.version})")
+            logger.info("Prompt '%s' uploaded to Langfuse (version: %s)", prompt_name, prompt.version)
 
-        except Exception as e:
-            print(f"Error uploading prompt {prompt_name}: {e}")
+        except Exception:
+            logger.exception("Error uploading prompt %s", prompt_name)
             # Try to continue with other prompts
             continue
 
-    print("All prompts uploaded successfully")
+    logger.info("All prompts uploaded successfully")
     return True
 
 
 async def main():
+    setup_logging()
     validate_config()
     prompts_uploaded = bootstrap_prompts()
 
     if prompts_uploaded:
-        print("Bootstrap completed successfully")
+        logger.info("Bootstrap completed successfully")
     else:
-        print("Bootstrap failed")
+        logger.error("Bootstrap failed")
 
 
 if __name__ == "__main__":

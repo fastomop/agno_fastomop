@@ -1,20 +1,34 @@
+from typing import Dict, List, Literal, Optional
+
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Literal
+
 
 class ConceptMapping(BaseModel):
     term: str
     concept_code: Optional[str] = None  # Allow None when concept not found
     concept_name: Optional[str] = None
     vocabulary_id: Optional[str] = None
-    domain_id: Optional[Literal["Condition", "Drug", "Device", "Observation",
-                         "Procedure", "Measurement", "Gender",
-                         "Race", "Ethnicity", "Visit"]] = None
+    domain_id: Optional[
+        Literal[
+            "Condition",
+            "Drug",
+            "Device",
+            "Observation",
+            "Procedure",
+            "Measurement",
+            "Gender",
+            "Race",
+            "Ethnicity",
+            "Visit",
+        ]
+    ] = None
     concept_id: Optional[int] = None
 
     # NEW: Intelligent concept selection fields
     selection_reasoning: Optional[str] = None  # Explanation of why this concept was chosen
     alternative_concepts_considered: Optional[List[int]] = None  # Other concept IDs evaluated
     estimated_patient_count: Optional[int] = None  # Patient count from database usage check
+
 
 class TemporalConstraint(BaseModel):
     """Flexible temporal constraint - structure varies by query type.
@@ -48,6 +62,7 @@ class AdditionalFilters(BaseModel):
     that the database agent should look at conversation history to find the previous
     cohort filtering logic and SQL query.
     """
+
     # Signal for follow-up queries - tells DB agent to look at conversation history
     is_followup: Optional[bool] = False
 
@@ -71,6 +86,7 @@ class SemanticContext(BaseModel):
     temporal_constraint: Optional[TemporalConstraint] = None
     additional_filters: Optional[AdditionalFilters] = None
 
+
 class QueryResult(BaseModel):
     sql: str
     result_count: Optional[int] = None
@@ -79,9 +95,8 @@ class QueryResult(BaseModel):
     rows: Optional[List[Dict]] = None
     message: Optional[str] = None  # For error messages or explanations
 
+
 class ErrorResponse(BaseModel):
     error_type: str
     message: str
     suggested_fix: Optional[str] = None
-
-

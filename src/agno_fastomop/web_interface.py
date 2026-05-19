@@ -11,16 +11,21 @@ Then visit http://localhost:7777
 Note: Auto-reload is disabled due to DuckDB file locking constraints.
 """
 
-
 import asyncio
+import logging
 from contextlib import asynccontextmanager
+
+import uvicorn
+from agno.db.sqlite import SqliteDb
 from agno.os import AgentOS
-from agno_fastomop.workflows.omop_workflow import initialize_workflow, cleanup_workflow
+from agno.team import Team
+
+from agno_fastomop._logging import setup_logging
 from agno_fastomop.agents.factory import create_model
 from agno_fastomop.config import config, validate_config
-from agno.db.sqlite import SqliteDb
-from agno.team import Team
-import uvicorn
+from agno_fastomop.workflows.omop_workflow import cleanup_workflow, initialize_workflow
+
+logger = logging.getLogger(__name__)
 
 # Global storage
 _workflow = None
@@ -37,25 +42,22 @@ async def app_lifespan(app):
     # Startup: nothing to do (workflow already initialized)
     yield
     # Shutdown: cleanup MCP subprocess to release DuckDB lock
-    print("Shutting down FastOMOP - cleaning up MCP connections...")
+    logger.info("Shutting down FastOMOP - cleaning up MCP connections...")
     await cleanup_workflow()
-    print("Cleanup complete")
+    logger.info("Cleanup complete")
 
 
 async def initialize():
     """Initialize workflow and create AgentOS - all in the same event loop"""
     global _workflow, _agents, _omop_team, _agent_os, _app
 
-    print("Initializing FastOMOP workflow...")
+    logger.info("Initializing FastOMOP workflow...")
     _workflow = await initialize_workflow()
     _agents = [step.agent for step in _workflow.steps]
-    print("✓ Workflow initialized")
+    logger.info("Workflow initialized")
 
     # Get default model config from config.local.toml
-    team_model_config = {
-        "MODEL_TYPE": config["models"]["default_provider"],
-        "MODEL_ID": config["models"]["default_id"]
-    }
+    team_model_config = {"MODEL_TYPE": config["models"]["default_provider"], "MODEL_ID": config["models"]["default_id"]}
 
     # Create shared memory db for all agents and team
     shared_db = SqliteDb(db_file="db_agent.db")
@@ -140,7 +142,7 @@ async def initialize():
         ],
     )
 
-    print("✓ Team created with both agents")
+    logger.info("Team created with both agents")
 
     # Create AgentOS with all three options:
     # - workflows: for cloud AgentOS UI
@@ -149,9 +151,9 @@ async def initialize():
     _agent_os = AgentOS(
         name="FastOMOP",
         description="Natural language interface for OMOP clinical databases",
-        workflows=[_workflow],    # Option 1: Full workflow (cloud UI)
-        teams=[_omop_team_conv, _omop_team_complex],        # Option 2: Team (local UI - Team mode)
-        agents=_agents,            # Option 3: Individual agents (local UI - Agent mode)
+        workflows=[_workflow],  # Option 1: Full workflow (cloud UI)
+        teams=[_omop_team_conv, _omop_team_complex],  # Option 2: Team (local UI - Team mode)
+        agents=_agents,  # Option 3: Individual agents (local UI - Agent mode)
         lifespan=app_lifespan,
     )
 
@@ -161,11 +163,12 @@ async def initialize():
         return {"status": "ok"}
 
     _app.add_api_route("/health", health, methods=["GET"])
-    print("✓ AgentOS created with workflow, team, and individual agents")
+    logger.info("AgentOS created with workflow, team, and individual agents")
 
 
 async def main():
     """Main async entry point"""
+    setup_logging()
     validate_config()
     # Initialize everything in this event loop
     await initialize()
