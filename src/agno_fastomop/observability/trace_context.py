@@ -3,14 +3,18 @@ Trace context sharing between fastomop and OMCP subprocess.
 Uses a temporary file to pass dynamic trace context across process boundaries.
 Supports W3C Trace Context format via OpenTelemetry propagation.
 """
+
 import json
+import logging
 import os
 import platform
 import tempfile
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Dict, Optional
+
 from opentelemetry.propagate import inject
 
+logger = logging.getLogger(__name__)
 
 # Use platform-specific temp directory for cross-platform compatibility
 if platform.system() == "Windows":
@@ -41,16 +45,18 @@ def write_trace_context_otel(session_id: Optional[str] = None) -> None:
 
     try:
         # Atomic write using temp file + rename
-        temp_file = TRACE_CONTEXT_FILE.with_suffix('.tmp')
-        with open(temp_file, 'w') as f:
+        temp_file = TRACE_CONTEXT_FILE.with_suffix(".tmp")
+        with open(temp_file, "w") as f:
             json.dump(context, f)
         temp_file.replace(TRACE_CONTEXT_FILE)
-    except Exception as e:
+    except Exception:
         # Non-critical error, log but don't fail
-        print(f"Warning: Failed to write trace context: {e}")
+        logger.warning("Failed to write trace context", exc_info=True)
 
 
-def write_trace_context(trace_id: Optional[str], observation_id: Optional[str], session_id: Optional[str] = None) -> None:
+def write_trace_context(
+    trace_id: Optional[str], observation_id: Optional[str], session_id: Optional[str] = None
+) -> None:
     """
     DEPRECATED: Legacy function for backward compatibility.
     Use write_trace_context_otel() instead for proper OpenTelemetry integration.
@@ -71,13 +77,13 @@ def write_trace_context(trace_id: Optional[str], observation_id: Optional[str], 
 
     try:
         # Atomic write using temp file + rename
-        temp_file = TRACE_CONTEXT_FILE.with_suffix('.tmp')
-        with open(temp_file, 'w') as f:
+        temp_file = TRACE_CONTEXT_FILE.with_suffix(".tmp")
+        with open(temp_file, "w") as f:
             json.dump(context, f)
         temp_file.replace(TRACE_CONTEXT_FILE)
-    except Exception as e:
+    except Exception:
         # Non-critical error, log but don't fail
-        print(f"Warning: Failed to write trace context: {e}")
+        logger.warning("Failed to write trace context", exc_info=True)
 
 
 def read_trace_context() -> Dict[str, Optional[str]]:
@@ -89,16 +95,16 @@ def read_trace_context() -> Dict[str, Optional[str]]:
     """
     try:
         if TRACE_CONTEXT_FILE.exists():
-            with open(TRACE_CONTEXT_FILE, 'r') as f:
+            with open(TRACE_CONTEXT_FILE, "r") as f:
                 context = json.load(f)
                 return {
                     "trace_id": context.get("trace_id"),
                     "parent_observation_id": context.get("parent_observation_id"),
                     "session_id": context.get("session_id"),
                 }
-    except Exception as e:
+    except Exception:
         # Non-critical error, return empty context
-        print(f"Warning: Failed to read trace context: {e}")
+        logger.warning("Failed to read trace context", exc_info=True)
 
     return {
         "trace_id": None,

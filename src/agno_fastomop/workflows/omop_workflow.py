@@ -1,16 +1,21 @@
-from agno.workflow import Workflow, Step
-from agno.tools.mcp import MCPTools
+import asyncio
+import json
+import logging
+import os
+
 from agno.compression.manager import CompressionManager
-from agno_fastomop.agents.semantic import create_semantic_agent
+from agno.db.sqlite import SqliteDb
+from agno.tools.mcp import MCPTools
+from agno.workflow import Step, Workflow
+from langfuse import Langfuse, get_client, observe
+
 from agno_fastomop.agents.database import create_database_agent
 from agno_fastomop.agents.factory import create_model
+from agno_fastomop.agents.semantic import create_semantic_agent
 from agno_fastomop.config import config, get_agent_config
-from agno_fastomop.observability.trace_context import write_trace_context_otel, clear_trace_context
-from agno.db.sqlite import SqliteDb
-from langfuse import observe, Langfuse, get_client
-import asyncio
-import os
-import json
+from agno_fastomop.observability.trace_context import write_trace_context_otel
+
+logger = logging.getLogger(__name__)
 
 # Module-level storage for workflow (created once, reused)
 # We cache separate workflows for batch vs interactive mode
@@ -40,12 +45,12 @@ async def initialize_workflow(batch_mode=False):
         # Create ONE MCP connection (shared by both agents to avoid DuckDB lock)
         # Pass Langfuse credentials to OMCP subprocess for trace propagation
         omcp_config = config["omcp"]
-        
+
         # Build environment variables for OMCP server
         # OMCP server requires DB_TYPE and DB_PATH (for DuckDB) or DB_TYPE and PostgreSQL connection vars
         db_path = os.getenv("DB_PATH", "")
         db_type = os.getenv("DB_TYPE", "")
-        
+
         # Auto-detect DB_TYPE from DB_PATH if not explicitly set
         if not db_type and db_path:
             if db_path.startswith("postgresql://") or db_path.startswith("postgres://"):
@@ -54,7 +59,7 @@ async def initialize_workflow(batch_mode=False):
                 db_type = "duckdb"  # Default to duckdb for file paths
         elif not db_type:
             db_type = "duckdb"  # Default to duckdb if nothing is set
-        
+
         omcp_env = {
             "DB_TYPE": db_type,
             "DB_PATH": db_path,
@@ -62,7 +67,7 @@ async def initialize_workflow(batch_mode=False):
             "LANGFUSE_SECRET_KEY": os.getenv("LANGFUSE_SECRET_KEY", ""),
             "LANGFUSE_HOST": os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
         }
-        
+
         # If using PostgreSQL, parse connection string or use individual env vars
         # OMCP server expects: DB_USERNAME, DB_PASSWORD, DB_HOST, DB_PORT, DB_DATABASE
         # Note: DB_PASSWORD can be empty (some PostgreSQL users don't have passwords)
@@ -72,7 +77,7 @@ async def initialize_workflow(batch_mode=False):
                 os.getenv(key) is not None and os.getenv(key).lower() not in ["none"]
                 for key in ["DB_USERNAME", "DB_HOST", "DB_PORT", "DB_DATABASE"]
             )
-            
+
             if has_individual_vars:
                 # Use individual environment variables
                 # Password is optional (can be empty string)
@@ -90,6 +95,7 @@ async def initialize_workflow(batch_mode=False):
                 # Try to parse connection string from DB_PATH
                 try:
                     from urllib.parse import urlparse
+
                     parsed = urlparse(db_path)
                     # Extract values from connection string
                     omcp_env["DB_USERNAME"] = parsed.username or ""
@@ -98,9 +104,12 @@ async def initialize_workflow(batch_mode=False):
                     omcp_env["DB_HOST"] = parsed.hostname or "localhost"
                     omcp_env["DB_PORT"] = str(parsed.port) if parsed.port else "5432"
                     omcp_env["DB_DATABASE"] = parsed.path.lstrip("/") if parsed.path else ""
-                except Exception as e:
-                    print(f"Warning: Could not parse PostgreSQL connection string from DB_PATH: {e}")
-                    print("Please set DB_USERNAME, DB_PASSWORD, DB_HOST, DB_PORT, and DB_DATABASE individually")
+                except Exception:
+                    logger.warning(
+                        "Could not parse PostgreSQL connection string from DB_PATH. "
+                        "Set DB_USERNAME, DB_PASSWORD, DB_HOST, DB_PORT, and DB_DATABASE individually.",
+                        exc_info=True,
+                    )
             else:
                 # Use individual environment variables if provided
                 for key in ["DB_USERNAME", "DB_HOST", "DB_PORT", "DB_DATABASE"]:
@@ -113,28 +122,30 @@ async def initialize_workflow(batch_mode=False):
                     omcp_env["DB_PASSWORD"] = db_password
                 else:
                     omcp_env["DB_PASSWORD"] = ""  # Empty password is valid
-        
+
         # For large databases (700GB+), connection initialization and queries can take longer
         # Default to 660 seconds (11 minutes) to allow for 10-minute query timeout + 1 minute buffer
         mcp_timeout = int(os.getenv("MCP_CONNECTION_TIMEOUT", "660"))
-        print(f"Connecting to OMCP server (timeout: {mcp_timeout}s)...")
-        print("Note: Large databases (700GB+) may take longer to initialize and execute complex queries.")
-        
+        logger.info("Connecting to OMCP server (timeout: %ds)...", mcp_timeout)
+        logger.debug("Large databases (700GB+) may take longer to initialize and execute complex queries.")
+
         _mcp_tools = MCPTools(
             transport=omcp_config["transport"],
             command=omcp_config["command"],
             env=omcp_env,
-            timeout_seconds=mcp_timeout  # Pass timeout to MCPTools
+            timeout_seconds=mcp_timeout,  # Pass timeout to MCPTools
         )
 
         # Manually connect MCP once
         try:
             await _mcp_tools._connect()
-            print("✓ OMCP server connected successfully")
-        except Exception as e:
-            print(f"⚠️  MCP connection failed: {e}")
-            print(f"If timeout occurred, try increasing MCP_CONNECTION_TIMEOUT (current: {mcp_timeout}s)")
-            print("For very large databases, try: export MCP_CONNECTION_TIMEOUT=600  # 10 minutes")
+            logger.info("OMCP server connected successfully")
+        except Exception:
+            logger.exception(
+                "MCP connection failed. If a timeout occurred, increase MCP_CONNECTION_TIMEOUT (current: %ds). "
+                "For very large databases, try: export MCP_CONNECTION_TIMEOUT=600  # 10 minutes",
+                mcp_timeout,
+            )
             raise
 
         # Create shared database for conversation history and memory
@@ -152,7 +163,7 @@ async def initialize_workflow(batch_mode=False):
                 compress_tool_results=True,
                 compress_token_limit=6000,  # Trigger compression at 6000 tokens
             )
-            print("✓ Compression manager created for batch mode (token limit: 6000)")
+            logger.info("Compression manager created for batch mode (token limit: 6000)")
 
         # Create agents with shared MCP - both query the database
         semantic_agent = create_semantic_agent(_mcp_tools)  # Queries concept table
@@ -162,7 +173,7 @@ async def initialize_workflow(batch_mode=False):
         if compression_manager is not None:
             semantic_agent.compression_manager = compression_manager
             database_agent.compression_manager = compression_manager
-            print("✓ Compression manager attached to both agents")
+            logger.info("Compression manager attached to both agents")
 
         # Configure workflow history based on mode
         # Batch mode: disable history for performance (independent queries)
@@ -217,47 +228,47 @@ def extract_final_query_from_step(step_response) -> str:
     try:
         # Check if step_response has messages
         messages = []
-        if hasattr(step_response, 'messages') and step_response.messages:
+        if hasattr(step_response, "messages") and step_response.messages:
             messages = step_response.messages
-        elif hasattr(step_response, 'run_response') and hasattr(step_response.run_response, 'messages'):
+        elif hasattr(step_response, "run_response") and hasattr(step_response.run_response, "messages"):
             messages = step_response.run_response.messages
 
         # Iterate through messages to find tool calls
         for message in messages:
-            if hasattr(message, 'tool_calls') and message.tool_calls:
+            if hasattr(message, "tool_calls") and message.tool_calls:
                 for tool_call in message.tool_calls:
                     # Extract tool name
                     tool_name = None
-                    if hasattr(tool_call, 'function') and tool_call.function:
-                        if hasattr(tool_call.function, 'name'):
+                    if hasattr(tool_call, "function") and tool_call.function:
+                        if hasattr(tool_call.function, "name"):
                             tool_name = tool_call.function.name
-                        elif hasattr(tool_call, 'tool_name'):
+                        elif hasattr(tool_call, "tool_name"):
                             tool_name = tool_call.tool_name
 
                     # Check if this is a select_query call
-                    if tool_name == 'select_query':
+                    if tool_name == "select_query":
                         # Check if it was successful (no error)
                         # tool_call_error == False or missing means success
-                        has_error = getattr(tool_call, 'tool_call_error', False)
+                        has_error = getattr(tool_call, "tool_call_error", False)
 
                         if not has_error:
                             # Successful call - extract the query from arguments
                             args = None
-                            if hasattr(tool_call, 'function') and tool_call.function:
-                                if hasattr(tool_call.function, 'arguments'):
+                            if hasattr(tool_call, "function") and tool_call.function:
+                                if hasattr(tool_call.function, "arguments"):
                                     try:
                                         args_raw = tool_call.function.arguments
                                         args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
                                     except (json.JSONDecodeError, AttributeError, TypeError):
                                         pass
-                            elif hasattr(tool_call, 'tool_args'):
+                            elif hasattr(tool_call, "tool_args"):
                                 args = tool_call.tool_args
 
-                            if args and 'query' in args:
-                                final_query = args['query']
+                            if args and "query" in args:
+                                final_query = args["query"]
 
-    except Exception as e:
-        print(f"Warning: Could not extract final query from step: {e}")
+    except Exception:
+        logger.warning("Could not extract final query from step", exc_info=True)
 
     return final_query
 
@@ -276,45 +287,45 @@ def extract_raw_result(workflow_response) -> str:
 
     try:
         # Check step_executor_runs for tool results
-        if hasattr(workflow_response, 'step_executor_runs') and workflow_response.step_executor_runs:
+        if hasattr(workflow_response, "step_executor_runs") and workflow_response.step_executor_runs:
             # Iterate through step executor runs in reverse (most recent first)
             for step_run in reversed(workflow_response.step_executor_runs):
-                if hasattr(step_run, 'tools') and step_run.tools:
+                if hasattr(step_run, "tools") and step_run.tools:
                     # Look through tools in reverse order (last tool call first)
                     for tool in reversed(step_run.tools):
                         # Check if this is a Select_Query tool
-                        tool_name = getattr(tool, 'tool_name', None)
-                        if tool_name == 'Select_Query':
+                        tool_name = getattr(tool, "tool_name", None)
+                        if tool_name == "Select_Query":
                             # Check if it succeeded (isError == False)
-                            result = getattr(tool, 'result', None)
+                            result = getattr(tool, "result", None)
                             if result:
                                 is_error = False
                                 # Check for isError in result
-                                if hasattr(result, 'isError'):
+                                if hasattr(result, "isError"):
                                     is_error = result.isError
-                                elif isinstance(result, dict) and 'isError' in result:
-                                    is_error = result['isError']
+                                elif isinstance(result, dict) and "isError" in result:
+                                    is_error = result["isError"]
 
                                 if not is_error:
                                     # Extract raw CSV content from MCP CallToolResult
                                     # Structure: result.content = [TextContent(type="text", text="<CSV>")]
-                                    if hasattr(result, 'content') and result.content:
+                                    if hasattr(result, "content") and result.content:
                                         content_list = result.content
                                         if isinstance(content_list, list) and len(content_list) > 0:
                                             # Get first TextContent item
                                             text_content = content_list[0]
-                                            if hasattr(text_content, 'text'):
+                                            if hasattr(text_content, "text"):
                                                 raw_result = text_content.text
                                                 break
-                                            elif isinstance(text_content, dict) and 'text' in text_content:
-                                                raw_result = text_content['text']
+                                            elif isinstance(text_content, dict) and "text" in text_content:
+                                                raw_result = text_content["text"]
                                                 break
-                                    elif isinstance(result, dict) and 'content' in result:
-                                        content_list = result['content']
+                                    elif isinstance(result, dict) and "content" in result:
+                                        content_list = result["content"]
                                         if isinstance(content_list, list) and len(content_list) > 0:
                                             text_content = content_list[0]
-                                            if isinstance(text_content, dict) and 'text' in text_content:
-                                                raw_result = text_content['text']
+                                            if isinstance(text_content, dict) and "text" in text_content:
+                                                raw_result = text_content["text"]
                                                 break
                                     elif isinstance(result, str):
                                         # Fallback: result is directly a string
@@ -324,10 +335,8 @@ def extract_raw_result(workflow_response) -> str:
                 if raw_result:
                     break
 
-    except Exception as e:
-        import traceback
-        print(f"Warning: Could not extract raw result: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+    except Exception:
+        logger.warning("Could not extract raw result", exc_info=True)
 
     return raw_result
 
@@ -347,33 +356,33 @@ def extract_final_query(workflow_response) -> str:
 
     try:
         # Method 1: Check step_executor_runs (matches Langfuse output structure)
-        if hasattr(workflow_response, 'step_executor_runs') and workflow_response.step_executor_runs:
+        if hasattr(workflow_response, "step_executor_runs") and workflow_response.step_executor_runs:
             # Iterate through step executor runs in reverse (most recent first)
             for step_run in reversed(workflow_response.step_executor_runs):
-                if hasattr(step_run, 'tools') and step_run.tools:
+                if hasattr(step_run, "tools") and step_run.tools:
                     # Look through tools in reverse order (last tool call first)
                     for tool in reversed(step_run.tools):
                         # Check if this is a Select_Query tool
-                        tool_name = getattr(tool, 'tool_name', None)
-                        if tool_name == 'Select_Query':
+                        tool_name = getattr(tool, "tool_name", None)
+                        if tool_name == "Select_Query":
                             # Check if it succeeded (isError == False)
-                            result = getattr(tool, 'result', None)
+                            result = getattr(tool, "result", None)
                             if result:
                                 is_error = False
                                 # Check for isError in result
-                                if hasattr(result, 'isError'):
+                                if hasattr(result, "isError"):
                                     is_error = result.isError
-                                elif isinstance(result, dict) and 'isError' in result:
-                                    is_error = result['isError']
+                                elif isinstance(result, dict) and "isError" in result:
+                                    is_error = result["isError"]
 
                                 if not is_error:
                                     # Successful query - extract it
-                                    tool_args = getattr(tool, 'tool_args', None)
+                                    tool_args = getattr(tool, "tool_args", None)
                                     if tool_args:
-                                        if isinstance(tool_args, dict) and 'query' in tool_args:
-                                            final_query = tool_args['query']
+                                        if isinstance(tool_args, dict) and "query" in tool_args:
+                                            final_query = tool_args["query"]
                                             break
-                                        elif hasattr(tool_args, 'query'):
+                                        elif hasattr(tool_args, "query"):
                                             final_query = tool_args.query
                                             break
 
@@ -381,7 +390,7 @@ def extract_final_query(workflow_response) -> str:
                     break
 
         # Method 2: Check if workflow has step_responses
-        if not final_query and hasattr(workflow_response, 'step_responses') and workflow_response.step_responses:
+        if not final_query and hasattr(workflow_response, "step_responses") and workflow_response.step_responses:
             # Database agent is the second step (index 1)
             for step_response in reversed(workflow_response.step_responses):
                 query = extract_final_query_from_step(step_response)
@@ -394,18 +403,16 @@ def extract_final_query(workflow_response) -> str:
             final_query = extract_final_query_from_step(workflow_response)
 
         # Method 4: Access through run_response
-        if not final_query and hasattr(workflow_response, 'run_response'):
+        if not final_query and hasattr(workflow_response, "run_response"):
             final_query = extract_final_query_from_step(workflow_response.run_response)
 
-    except Exception as e:
-        import traceback
-        print(f"Warning: Could not extract final query: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+    except Exception:
+        logger.warning("Could not extract final query", exc_info=True)
 
     return final_query
 
 
-@observe() #Complete langfuse tracing
+@observe()  # Complete langfuse tracing
 async def run_omop_query(user_query: str, session_id: str = None, user_id: str = None, batch_mode: bool = False) -> str:
     """
     Run OMOP clinical query via Workflow
@@ -421,9 +428,9 @@ async def run_omop_query(user_query: str, session_id: str = None, user_id: str =
     # This uses W3C Trace Context format (traceparent/tracestate)
     try:
         write_trace_context_otel(session_id=session_id)
-    except Exception as e:
+    except Exception:
         # Non-critical: if trace context extraction fails, continue without it
-        print(f"Warning: Could not inject OpenTelemetry trace context: {e}")
+        logger.warning("Could not inject OpenTelemetry trace context", exc_info=True)
 
     workflow = await initialize_workflow(batch_mode=batch_mode)
     response = await workflow.arun(user_query, session_id=session_id, user_id=user_id)
@@ -443,27 +450,23 @@ async def run_omop_query(user_query: str, session_id: str = None, user_id: str =
 
             # Get existing output from response
             existing_output = {}
-            if hasattr(response, 'to_dict'):
+            if hasattr(response, "to_dict"):
                 existing_output = response.to_dict()
-            elif hasattr(response, '__dict__'):
-                existing_output = {k: v for k, v in response.__dict__.items() if not k.startswith('_')}
+            elif hasattr(response, "__dict__"):
+                existing_output = {k: v for k, v in response.__dict__.items() if not k.startswith("_")}
 
             # Add SQL query and raw result to existing output
             if final_query:
-                existing_output['sql_query'] = final_query
+                existing_output["sql_query"] = final_query
             if raw_result:
-                existing_output['raw_csv_result'] = raw_result
+                existing_output["raw_csv_result"] = raw_result
 
-            langfuse.update_current_trace(
-                output=existing_output
-            )
+            langfuse.update_current_trace(output=existing_output)
         else:
-            print("WARNING: No SQL query or raw result found in response")
+            logger.warning("No SQL query or raw result found in response")
 
-    except Exception as e:
-        import traceback
-        print(f"ERROR: Could not update trace with query metadata: {e}")
-        print(f"ERROR traceback: {traceback.format_exc()}")
+    except Exception:
+        logger.exception("Could not update trace with query metadata")
 
     return response
 
@@ -477,13 +480,12 @@ async def cleanup_workflow():
 
     # Cleanup both workflow types if they exist
     for workflow in [_omop_workflow_interactive, _omop_workflow_batch]:
-        if workflow is not None and hasattr(workflow, 'steps'):
+        if workflow is not None and hasattr(workflow, "steps"):
             for step in workflow.steps:
-                if hasattr(step.agent, 'tools'):
+                if hasattr(step.agent, "tools"):
                     for tool in step.agent.tools:
-                        if hasattr(tool, 'close'):
+                        if hasattr(tool, "close"):
                             await tool.close()
-
 
     langfuse = Langfuse()
     langfuse.flush()

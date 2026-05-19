@@ -1,12 +1,13 @@
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+from typing import Any, Dict
+
 import tomli
-from typing import Dict, Any
+from dotenv import load_dotenv
 
 load_dotenv()
 
-#Project config
+# Project config
 CONFIG_DIR = Path(__file__).parent.parent.parent
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 LOCAL_CONFIG_PATH = CONFIG_DIR / "config.local.toml"
@@ -44,18 +45,20 @@ def load_config() -> dict:
 
     return config
 
+
 config = load_config()
 
-def get_agent_config(agent_name:str) -> Dict[str, Any]:
+
+def get_agent_config(agent_name: str) -> Dict[str, Any]:
     """
     Get agent config
     """
     if agent_name not in config["agents"]:
         raise ValueError(f"Agent name {agent_name} not found in config")
-    
+
     agent_config = config["agents"][agent_name].copy()
 
-    #Provider
+    # Provider
     provider = agent_config.get("model_provider", config["models"]["default_provider"])
     provider_config = config["models"]["providers"][provider].copy()
 
@@ -66,7 +69,7 @@ def get_agent_config(agent_name:str) -> Dict[str, Any]:
         "MCP_COMMAND": os.getenv("MCP_COMMAND", os.path.expandvars(config["omcp"]["command"])),
     }
 
-    #Add azure specifics
+    # Add azure specifics
     if provider == "azure":
         complete_config["api_version"] = provider_config.get("api_version", "2024-10-21")
         complete_config["temperature"] = provider_config.get("temperature")

@@ -2,13 +2,19 @@
 Langfuse Dataset Evaluation for FastOMOP
 Runs the agentic pipeline (run_agent) on Langfuse datasets
 """
+
 import asyncio
-import nest_asyncio
-import traceback
+import logging
 from datetime import datetime
+
+import nest_asyncio
 from langfuse import Langfuse
+
+from agno_fastomop._logging import setup_logging
 from agno_fastomop.observability.tracer import get_langfuse_client
 from agno_fastomop.workflows.omop_workflow import run_omop_query
+
+logger = logging.getLogger(__name__)
 
 # Allow nested event loops
 nest_asyncio.apply()
@@ -31,25 +37,26 @@ def omop_task(item):
     else:
         user_query = item.input
 
-    print(f"Processing query: {user_query[:100]}...")
+    logger.info("Processing query: %s...", user_query[:100])
 
     try:
         # Run the async OMOP query workflow
         response = asyncio.run(run_omop_query(user_query))
 
-        print(f"✓ Query completed: {user_query[:50]}...")
+        logger.info("Query completed: %s...", user_query[:50])
         return response
 
     except Exception as e:
-        error_msg = f"Error processing query: {str(e)}\n{traceback.format_exc()}"
-        print(f"✗ {error_msg}")
-        return error_msg
+        logger.exception("Error processing query")
+        return f"Error processing query: {e}"
 
 
-def run_experiment(dataset_name: str = "foem",
-                   experiment_name: str = "FastOMOP Agentic Pipeline",
-                   experiment_description: str = None,
-                   max_concurrency: int = 2):
+def run_experiment(
+    dataset_name: str = "foem",
+    experiment_name: str = "FastOMOP Agentic Pipeline",
+    experiment_description: str = None,
+    max_concurrency: int = 2,
+):
     """
     Run a Langfuse dataset experiment
 
@@ -63,17 +70,16 @@ def run_experiment(dataset_name: str = "foem",
     langfuse = get_langfuse_client()
 
     # Get dataset from Langfuse
-    print(f"Loading dataset '{dataset_name}' from Langfuse...")
+    logger.info("Loading dataset '%s' from Langfuse...", dataset_name)
     dataset = langfuse.get_dataset(dataset_name, fetch_items_page_size=100)
-    print(f"Dataset loaded with {len(dataset.items)} items")
+    logger.info("Dataset loaded with %d items", len(dataset.items))
 
     # Debug: Check if we need to fetch more items
-    if hasattr(dataset, 'meta'):
-        print(f"Dataset metadata: {dataset.meta}")
+    if hasattr(dataset, "meta"):
+        logger.debug("Dataset metadata: %s", dataset.meta)
 
     # Run experiment on the dataset
-    print(f"\nRunning experiment: {experiment_name}")
-    print("="*60)
+    logger.info("Running experiment: %s", experiment_name)
 
     # Create custom run name with formatted timestamp
     timestamp = datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
@@ -84,29 +90,31 @@ def run_experiment(dataset_name: str = "foem",
         run_name=run_name,
         description=experiment_description or f"Evaluation of FastOMOP agentic pipeline on {dataset_name}",
         task=omop_task,
-        max_concurrency=max_concurrency
+        max_concurrency=max_concurrency,
     )
 
     # Flush Langfuse traces
-    print("\nFlushing Langfuse traces...")
+    logger.info("Flushing Langfuse traces...")
     langfuse = Langfuse()
     langfuse.flush()
-    print("✓ Langfuse traces flushed")
+    logger.info("Langfuse traces flushed")
 
-    # Display results
-    print("\n" + "="*60)
+    # Print formatted results to stdout — this is a human-readable
+    # experiment summary, not diagnostic output.
+    print("\n" + "=" * 60)
     print("EXPERIMENT RESULTS")
-    print("="*60)
+    print("=" * 60)
     print(result.format())
 
     return result
 
 
 if __name__ == "__main__":
+    setup_logging()
     # Run experiment on the "foem" dataset
     result = run_experiment(
         dataset_name="complete_foem",
         experiment_name="complete_foem test",
         experiment_description="Testing the complete agentic workflow on FOEM dataset",
-        max_concurrency=1  # Limit the concurrent queries (adjust as needed)
+        max_concurrency=1,  # Limit the concurrent queries (adjust as needed)
     )
