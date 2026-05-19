@@ -107,7 +107,7 @@ if [ "$(docker compose ps -q fastomop)" ]; then
     echo ""
     echo "Next steps:"
     echo "  1. Bootstrap (first time only):"
-    echo "     docker compose exec fastomop python -m agno_fastomop.bootstrap"
+    echo "     docker compose exec fastomop agno_fastomop bootstrap"
     echo ""
     echo "  2. Access web interface at http://$SERVER_IP:7777"
     echo ""

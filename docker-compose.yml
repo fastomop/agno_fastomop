@@ -53,7 +53,7 @@ services:
     ports:
       - "7777:7777"
 
-    command: ["python", "-m", "agno_fastomop.web_interface"]
+    command: ["agno_fastomop", "web"]
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7777/health"]
@@ -77,7 +77,7 @@ services:
     stdin_open: true
     tty: true
 
-    command: ["python", "-m", "agno_fastomop.run_agent"]
+    command: ["agno_fastomop", "run"]
 
   # Batch Processing Mode (one-off)
   batch:
@@ -94,7 +94,7 @@ services:
       # Mount queries directory for batch processing
       - ./queries:/app/queries
 
-    command: ["python", "-m", "agno_fastomop.run_agent", "--batch", "/app/queries/queries.json"]
+    command: ["agno_fastomop", "run", "--batch", "/app/queries/queries.json"]
 
   # Bootstrap/Utility Service (one-off)
   bootstrap:
@@ -102,7 +102,7 @@ services:
     container_name: fastomop-bootstrap
     profiles: ["bootstrap"]  # Only run when explicitly called
 
-    command: ["python", "-m", "agno_fastomop.bootstrap"]
+    command: ["agno_fastomop", "bootstrap"]
 
 # Optional: Define volumes for better data management
 volumes:

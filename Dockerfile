@@ -59,4 +59,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:7777/health || exit 1
 
 # Default command - run web interface
-CMD ["python", "-m", "agno_fastomop.web_interface"]
+CMD ["agno_fastomop", "web"]

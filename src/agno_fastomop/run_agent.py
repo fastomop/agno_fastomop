@@ -1,5 +1,3 @@
-import argparse
-import asyncio
 import json
 import logging
 import sys
@@ -7,8 +5,6 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from agno_fastomop._logging import setup_logging
-from agno_fastomop.config import validate_config
 from agno_fastomop.workflows.omop_workflow import cleanup_workflow, run_omop_query
 
 logger = logging.getLogger(__name__)
@@ -206,18 +202,3 @@ async def batch_mode(dataset_path, output_path=None):
     print(_DIVIDER)
 
     return True
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="FastOMOP - OMOP Clinical Query Workflow")
-    parser.add_argument("--batch", type=str, help="Path to the dataset file")
-    parser.add_argument("--output", type=str, help="Path to the output file")
-    args = parser.parse_args()
-
-    setup_logging()
-    validate_config()
-
-    if args.batch:
-        asyncio.run(batch_mode(args.batch, args.output))
-    else:
-        asyncio.run(interactive_session())

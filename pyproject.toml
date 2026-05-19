@@ -20,7 +20,12 @@ dependencies = [
     "opentelemetry-api>=1.20.0",
     "ag-ui-protocol>=0.1.0",
     "pandas>=2.0.0",
+    "typer>=0.12",
+    "click>=8.1",
 ]
+
+[project.scripts]
+agno_fastomop = "agno_fastomop.cli:app"
 
 [project.optional-dependencies]
 dev = [

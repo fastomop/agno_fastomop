@@ -1,6 +1,10 @@
 """
 Langfuse Dataset Evaluation for FastOMOP
-Runs the agentic pipeline (run_agent) on Langfuse datasets
+Runs the agentic pipeline (run_agent) on Langfuse datasets.
+
+This module is not exposed through the `agno_fastomop` CLI today — it's an
+internal dev / evaluation tool. Run it manually with:
+    uv run python -m agno_fastomop.evaluation.experiments
 """
 
 import asyncio
