@@ -4,14 +4,17 @@ Runs the agentic pipeline (run_agent) on Langfuse datasets
 """
 
 import asyncio
-import traceback
+import logging
 from datetime import datetime
 
 import nest_asyncio
 from langfuse import Langfuse
 
+from agno_fastomop._logging import setup_logging
 from agno_fastomop.observability.tracer import get_langfuse_client
 from agno_fastomop.workflows.omop_workflow import run_omop_query
+
+logger = logging.getLogger(__name__)
 
 # Allow nested event loops
 nest_asyncio.apply()
@@ -34,19 +37,18 @@ def omop_task(item):
     else:
         user_query = item.input
 
-    print(f"Processing query: {user_query[:100]}...")
+    logger.info("Processing query: %s...", user_query[:100])
 
     try:
         # Run the async OMOP query workflow
         response = asyncio.run(run_omop_query(user_query))
 
-        print(f"✓ Query completed: {user_query[:50]}...")
+        logger.info("Query completed: %s...", user_query[:50])
         return response
 
     except Exception as e:
-        error_msg = f"Error processing query: {str(e)}\n{traceback.format_exc()}"
-        print(f"✗ {error_msg}")
-        return error_msg
+        logger.exception("Error processing query")
+        return f"Error processing query: {e}"
 
 
 def run_experiment(
@@ -68,17 +70,16 @@ def run_experiment(
     langfuse = get_langfuse_client()
 
     # Get dataset from Langfuse
-    print(f"Loading dataset '{dataset_name}' from Langfuse...")
+    logger.info("Loading dataset '%s' from Langfuse...", dataset_name)
     dataset = langfuse.get_dataset(dataset_name, fetch_items_page_size=100)
-    print(f"Dataset loaded with {len(dataset.items)} items")
+    logger.info("Dataset loaded with %d items", len(dataset.items))
 
     # Debug: Check if we need to fetch more items
     if hasattr(dataset, "meta"):
-        print(f"Dataset metadata: {dataset.meta}")
+        logger.debug("Dataset metadata: %s", dataset.meta)
 
     # Run experiment on the dataset
-    print(f"\nRunning experiment: {experiment_name}")
-    print("=" * 60)
+    logger.info("Running experiment: %s", experiment_name)
 
     # Create custom run name with formatted timestamp
     timestamp = datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
@@ -93,12 +94,13 @@ def run_experiment(
     )
 
     # Flush Langfuse traces
-    print("\nFlushing Langfuse traces...")
+    logger.info("Flushing Langfuse traces...")
     langfuse = Langfuse()
     langfuse.flush()
-    print("✓ Langfuse traces flushed")
+    logger.info("Langfuse traces flushed")
 
-    # Display results
+    # Print formatted results to stdout — this is a human-readable
+    # experiment summary, not diagnostic output.
     print("\n" + "=" * 60)
     print("EXPERIMENT RESULTS")
     print("=" * 60)
@@ -108,6 +110,7 @@ def run_experiment(
 
 
 if __name__ == "__main__":
+    setup_logging()
     # Run experiment on the "foem" dataset
     result = run_experiment(
         dataset_name="complete_foem",

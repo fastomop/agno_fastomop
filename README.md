@@ -19,6 +19,19 @@ All executions are traced to Langfuse for evaluation and prompt optimization.
 - LLM provider (one of: Azure OpenAI, OpenAI, Anthropic, or Ollama)
 - Langfuse account (optional — enable with `LANGFUSE_ENABLED=true`)
 
+### Logging
+
+FastOMOP uses Python's standard `logging` module. Set the verbosity via the
+`LOG_LEVEL` env var (`DEBUG` | `INFO` | `WARNING` | `ERROR` | `CRITICAL`,
+default `INFO`):
+
+```bash
+LOG_LEVEL=DEBUG uv run python -m agno_fastomop.run_agent
+```
+
+Interactive CLI banners (welcome / prompt / goodbye) still go to stdout via
+`print()` — they are part of the REPL UI, not diagnostic output.
+
 ## Installation
 
 ```bash

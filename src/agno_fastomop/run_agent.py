@@ -1,21 +1,30 @@
 import argparse
 import asyncio
 import json
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+from agno_fastomop._logging import setup_logging
 from agno_fastomop.config import validate_config
 from agno_fastomop.workflows.omop_workflow import cleanup_workflow, run_omop_query
+
+logger = logging.getLogger(__name__)
+
+# REPL banners use plain print() rather than the logger — they are interactive
+# UI for the user at the terminal, not diagnostic output that should be
+# filtered by LOG_LEVEL or captured by an observability backend.
+_DIVIDER = "=" * 50
 
 
 async def interactive_session():
     """Interactive CLI session with persistent agents and memory"""
 
     print("Welcome to FastOMOP - the OMOP Clinical Query Workflow")
-    print("=" * 50)
-    print("Initializing agents (this may take a moment)...")
+    print(_DIVIDER)
+    logger.info("Initializing agents (this may take a moment)...")
 
     # Generate session and user IDs for memory persistence
     session_id = str(uuid4())
@@ -29,29 +38,29 @@ async def interactive_session():
 
         print("Agents initialized! Enter your query or type 'exit' to quit")
         print(f"Session ID: {session_id}")
-        print("=" * 50)
+        print(_DIVIDER)
 
         while True:
             user_query = input("Enter your query: ")
             if user_query.lower() == "exit":
-                print("Shutting down...")
+                logger.info("Shutting down...")
                 await cleanup_workflow()
                 print("Goodbye!")
                 break
 
             try:
-                print("Processing...")
+                logger.info("Processing query")
                 response = await run_omop_query(user_query, session_id=session_id, user_id=user_id)
-                print("=" * 50)
+                print(_DIVIDER)
                 print(response.content)
-                print("=" * 50)
+                print(_DIVIDER)
 
-            except Exception as e:
-                print(f"Error: {e}")
+            except Exception:
+                logger.exception("Query failed")
                 print("Please try again")
 
-    except Exception as e:
-        print(f"Failed to initialize: {e}")
+    except Exception:
+        logger.exception("Failed to initialize")
         await cleanup_workflow()
 
 
@@ -71,9 +80,8 @@ async def batch_mode(dataset_path, output_path=None):
         output_path = input_file.parent / f"{input_file.stem}_results.json"
 
     print("FastOMOP - Batch Mode")
-    print("=" * 50)
-    print(f"Processing {input_file} and saving results to {output_path}")
-    print("=" * 50)
+    print(_DIVIDER)
+    logger.info("Processing %s and saving results to %s", input_file, output_path)
 
     try:
         with open(input_file, "r") as f:
@@ -88,27 +96,23 @@ async def batch_mode(dataset_path, output_path=None):
         else:
             raise ValueError("Input file must contain a list of queries")
 
-        print(f"Found {len(queries)} queries in the dataset")
-        print("=" * 50)
+        logger.info("Found %d queries in the dataset", len(queries))
 
-    except json.JSONDecodeError as e:
-        print(f"Error parsing JSON: {e}")
-        print("Please check the input file format")
+    except json.JSONDecodeError:
+        logger.exception("Error parsing JSON in %s", input_file)
         sys.exit(1)
 
-    except Exception as e:
-        print(f"Error processing queries: {e}")
-        print("Please try again")
+    except Exception:
+        logger.exception("Error processing queries from %s", input_file)
         sys.exit(1)
 
-    print("Processing queries...")
-    print("=" * 50)
+    logger.info("Processing queries...")
     start_time = datetime.now()
 
     # Each batch gets its own session (queries within batch share context)
     session_id = str(uuid4())
     user_id = "batch_user"
-    print(f"Batch Session ID: {session_id}")
+    logger.info("Batch Session ID: %s", session_id)
 
     results = []
     for i, query_item in enumerate(queries, 1):
@@ -127,10 +131,11 @@ async def batch_mode(dataset_path, output_path=None):
             raise ValueError(f"Invalid query item: {query_item}")
 
         if not query_text:
-            print(f"Skipping empty query {i}")
+            logger.warning("Skipping empty query %d", i)
             continue
 
-        print(f"\n[{i}/{len(queries)}] Processing: {query_text[:80]}{'...' if len(query_text) > 80 else ''}")
+        preview = query_text[:80] + ("..." if len(query_text) > 80 else "")
+        logger.info("[%d/%d] Processing: %s", i, len(queries), preview)
 
         result_entry = {
             "query_id": i,
@@ -151,8 +156,9 @@ async def batch_mode(dataset_path, output_path=None):
                     "execution_time": (query_end - query_start).total_seconds(),
                 }
             )
-            print(f"Query {i} completed in {result_entry['execution_time']:.2f} seconds")
+            logger.info("Query %d completed in %.2fs", i, result_entry["execution_time"])
         except Exception as e:
+            logger.exception("Query %d failed", i)
             result_entry.update(
                 {
                     "status": "error",
@@ -164,7 +170,7 @@ async def batch_mode(dataset_path, output_path=None):
         results.append(result_entry)
 
     # Cleanup workflow after batch
-    print("Cleaning up resources...")
+    logger.info("Cleaning up resources...")
     await cleanup_workflow()
 
     end_time = datetime.now()
@@ -191,14 +197,13 @@ async def batch_mode(dataset_path, output_path=None):
     try:
         with open(output_path, "w") as f:
             json.dump(output_doc, f, indent=2)
-        print(f"Results saved to {output_path}")
-    except Exception as e:
-        print(f"Error saving results: {e}")
-        print("Please try again")
+        logger.info("Results saved to %s", output_path)
+    except OSError:
+        logger.exception("Error saving results to %s", output_path)
 
-    print("=" * 50)
+    print(_DIVIDER)
     print("Batch mode completed")
-    print("=" * 50)
+    print(_DIVIDER)
 
     return True
 
@@ -209,6 +214,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, help="Path to the output file")
     args = parser.parse_args()
 
+    setup_logging()
     validate_config()
 
     if args.batch:
