@@ -15,9 +15,9 @@ All executions are traced to Langfuse for evaluation and prompt optimization.
 
 - Python 3.13+
 - UV package manager
-- OMOP CDM database 
+- OMOP CDM database
 - LLM provider (one of: Azure OpenAI, OpenAI, Anthropic, or Ollama)
-- Langfuse account for observability
+- Langfuse account (optional — enable with `LANGFUSE_ENABLED=true`)
 
 ## Installation
 
@@ -41,13 +41,17 @@ cp .env.example .env
 Create a `.env` file with the following required variables:
 
 ```bash
-# Langfuse (required)
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_HOST=https://cloud.langfuse.com
-
 # OMOP Database (required)
-DB_PATH=/path/to/omop.duckdb #or see OMCP docu for set-up of postgresql/ general db set-up
+DB_PATH=/path/to/omop.duckdb # or see OMCP docs for postgresql/general db set-up
+
+# OMCP server checkout (required — used to launch the MCP server)
+OMCP_SERVER_DIR=/path/to/omcp_server
+
+# Langfuse (optional — only enforced when LANGFUSE_ENABLED=true)
+LANGFUSE_ENABLED=false
+# LANGFUSE_PUBLIC_KEY=pk-lf-...
+# LANGFUSE_SECRET_KEY=sk-lf-...
+# LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
 Add credentials for your chosen LLM provider:
@@ -157,23 +161,27 @@ model_provider = "ollama"  # Use local model for concept mapping
 
 ### MCP Server Configuration
 
-Configure the OMOP MCP server path in `config.toml`:
+The OMOP MCP server command is templated in `config.toml` and resolves
+`${OMCP_SERVER_DIR}` from your `.env` at load time:
 
 ```toml
 [omcp]
 transport = "stdio"
-command = "uv run --directory /path/to/omcp_server python src/omcp/main.py"
+command = "uv run --directory ${OMCP_SERVER_DIR} python src/omcp/main.py"
 ```
+
+Set `OMCP_SERVER_DIR` in `.env` to the path of your `omcp_server` checkout,
+or override the whole command via the `MCP_COMMAND` env var.
 
 ## Bootstrap
 
-Initialize prompts and knowledge base before first use:
+Upload agent prompts to Langfuse before first use (only required when
+`LANGFUSE_ENABLED=true`; otherwise the agents fall back to the local
+prompt files under `src/agno_fastomop/prompts/`):
 
 ```bash
 uv run python -m agno_fastomop.bootstrap
 ```
-
-This uploads agent prompts to Langfuse and builds the OMOP world model knowledge base.
 
 ## Usage
 
@@ -303,15 +311,11 @@ All workflow executions are traced to Langfuse via the `@observe()` decorator:
 
 Access traces at your Langfuse dashboard for evaluation and debugging.
 
-### Knowledge Base
+### Grounding
 
-The database agent uses a LanceDB vector store containing OMOP CDM documentation:
-
-- Table schemas and relationships
-- SQL query patterns for common use cases
-- Domain-specific conventions
-
-Located at: `src/agno_fastomop/knowledge/omop_world_model/`
+The database agent grounds its SQL generation on the system prompt
+(`prompts/database_agent.txt`) and the live schema returned by the
+OMCP MCP server. There is no separate vector knowledge base.
 
 ### Prompt Management
 
@@ -339,18 +343,17 @@ agno_fastomop/
 │   │   └── omop_workflow.py
 │   ├── schemas/         # Pydantic models
 │   │   └── schemas.py
-│   ├── prompts/         # Local prompt templates
-│   ├── knowledge/       # OMOP world model
+│   ├── prompts/         # Local prompt templates (uploaded to Langfuse)
 │   ├── observability/   # Langfuse integration
-│   └── bootstrap.py     # Initialization script
+│   └── bootstrap.py     # Uploads prompts to Langfuse
 ├── config.toml          # Configuration
 └── README.md
 ```
 
 ### Adding New Query Patterns
 
-1. Update OMOP world model in `knowledge/omop_world_model/omop_knowledge.md`
-2. Re-run bootstrap to update vector store
+1. Update the relevant prompt under `src/agno_fastomop/prompts/`
+2. Re-run bootstrap to upload to Langfuse
 3. Test with sample queries
 4. Monitor execution in Langfuse
 

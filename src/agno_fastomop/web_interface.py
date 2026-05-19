@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from agno.os import AgentOS
 from agno_fastomop.workflows.omop_workflow import initialize_workflow, cleanup_workflow
 from agno_fastomop.agents.factory import create_model
-from agno_fastomop.config import config
+from agno_fastomop.config import config, validate_config
 from agno.db.sqlite import SqliteDb
 from agno.team import Team
 import uvicorn
@@ -156,11 +156,17 @@ async def initialize():
     )
 
     _app = _agent_os.get_app()
+
+    async def health() -> dict:
+        return {"status": "ok"}
+
+    _app.add_api_route("/health", health, methods=["GET"])
     print("✓ AgentOS created with workflow, team, and individual agents")
 
 
 async def main():
     """Main async entry point"""
+    validate_config()
     # Initialize everything in this event loop
     await initialize()
 
@@ -168,7 +174,7 @@ async def main():
     uvicorn_config = uvicorn.Config(
         app=_app,
         host="0.0.0.0",
-        port=3000,
+        port=7777,
         reload=False,
         log_level="info",
     )

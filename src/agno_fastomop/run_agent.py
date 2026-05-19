@@ -1,5 +1,6 @@
 import asyncio
 from agno_fastomop.workflows.omop_workflow import run_omop_query, cleanup_workflow
+from agno_fastomop.config import validate_config
 import argparse
 import sys
 from pathlib import Path
@@ -197,6 +198,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch", type=str, help="Path to the dataset file")
     parser.add_argument("--output", type=str, help="Path to the output file")
     args = parser.parse_args()
+
+    validate_config()
 
     if args.batch:
         asyncio.run(batch_mode(args.batch, args.output))

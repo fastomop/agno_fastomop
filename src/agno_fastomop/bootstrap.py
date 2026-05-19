@@ -1,9 +1,7 @@
 from agno_fastomop.observability.tracer import get_langfuse_client
+from agno_fastomop.config import validate_config
 from pathlib import Path
 import asyncio
-from agno.vectordb.lancedb import LanceDb
-from agno.knowledge import Knowledge
-
 
 
 def bootstrap_prompts():
@@ -44,58 +42,16 @@ def bootstrap_prompts():
     print("All prompts uploaded successfully")
     return True
 
-async def bootstrap_knowledge():
-    """Load OMOP world model into LanceDB with lightweight embeddings"""
-
-    from agno.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
-
-    knowledge_dir = Path(__file__).parent / "knowledge" / "omop_world_model"
-
-    if not knowledge_dir.exists():
-        print(f"Error: Knowledge directory not found: {knowledge_dir}")
-        return False
-
-    print(f"Loading knowledge from: {knowledge_dir}")
-
-    # Use lightweight embedder for SQL patterns (384 dimensions, fast, free)
-    embedder = SentenceTransformerEmbedder(id="sentence-transformers/all-MiniLM-L6-v2")
-
-    vectordb = LanceDb(
-        uri=str(knowledge_dir / ".lancedb"),
-        table_name="omop_world_model",
-        embedder=embedder,
-    )
-
-    knowledge = Knowledge(
-        vector_db=vectordb,
-        max_results=5,
-    )
-
-    try:
-        await knowledge.add_content_async(
-            path=str(knowledge_dir),
-            include=["*.md", "*.txt", "*.json"],
-        )
-
-        if hasattr(knowledge, 'contents_db') and knowledge.contents_db:
-            content_count = len(knowledge.contents_db)
-            print(f"✓ Knowledge base loaded: {content_count} documents")
-        else:
-            print("✓ Knowledge base loaded successfully")
-
-        return True
-    except Exception as e:
-        print(f"Error loading knowledge base: {e}")
-        return False
 
 async def main():
+    validate_config()
     prompts_uploaded = bootstrap_prompts()
-    knowledge_uploaded = await bootstrap_knowledge()
 
-    if prompts_uploaded and knowledge_uploaded:
+    if prompts_uploaded:
         print("Bootstrap completed successfully")
     else:
         print("Bootstrap failed")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

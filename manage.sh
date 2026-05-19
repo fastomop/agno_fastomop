@@ -19,7 +19,7 @@ show_usage() {
     echo "  shell              Open bash shell in web container"
     echo "  python             Open Python REPL in container"
     echo "  test               Run interactive CLI mode"
-    echo "  bootstrap          Initialize prompts and knowledge base"
+    echo "  bootstrap          Initialize prompts in Langfuse"
     echo "  batch <file>       Run batch processing on queries file"
     echo "  rebuild            Rebuild and restart container"
     echo "  health             Check health status"
@@ -90,7 +90,7 @@ case "$1" in
         ;;
 
     bootstrap)
-        echo "Bootstrapping FastOMOP (initializing prompts and knowledge base)..."
+        echo "Bootstrapping FastOMOP (uploading prompts to Langfuse)..."
         docker compose run --rm --profile bootstrap bootstrap
         echo "✓ Bootstrap complete"
         ;;

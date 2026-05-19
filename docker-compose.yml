@@ -26,14 +26,11 @@ x-fastomop-common: &fastomop-common
     # Configuration files
     - ./config.toml:/app/config.toml:ro
 
-    # Data directory for DuckDB and knowledge base
+    # Data directory for DuckDB
     - ./data:/app/data
 
     # Optional: mount prompts for easy editing
     - ./src/agno_fastomop/prompts:/app/src/agno_fastomop/prompts:ro
-
-    # Optional: mount knowledge base
-    - ./src/agno_fastomop/knowledge:/app/src/agno_fastomop/knowledge
 
   network_mode: "host"
 
@@ -93,7 +90,6 @@ services:
       - ./config.toml:/app/config.toml:ro
       - ./data:/app/data
       - ./src/agno_fastomop/prompts:/app/src/agno_fastomop/prompts:ro
-      - ./src/agno_fastomop/knowledge:/app/src/agno_fastomop/knowledge
 
       # Mount queries directory for batch processing
       - ./queries:/app/queries
