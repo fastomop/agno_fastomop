@@ -131,7 +131,7 @@ async def initialize_workflow(batch_mode=False):
 
         _mcp_tools = MCPTools(
             transport=omcp_config["transport"],
-            command=omcp_config["command"],
+            command=os.getenv("MCP_COMMAND", os.path.expandvars(omcp_config["command"])),
             env=omcp_env,
             timeout_seconds=mcp_timeout,  # Pass timeout to MCPTools
         )

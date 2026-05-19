@@ -11,7 +11,6 @@ Then visit http://localhost:7777
 Note: Auto-reload is disabled due to DuckDB file locking constraints.
 """
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -185,8 +184,3 @@ async def main():
 
     # Run server in the same event loop
     await server.serve()
-
-
-if __name__ == "__main__":
-    """Visit http://localhost:7777 to interact with FastOMOP"""
-    asyncio.run(main())

@@ -20,7 +20,12 @@ dependencies = [
     "opentelemetry-api>=1.20.0",
     "ag-ui-protocol>=0.1.0",
     "pandas>=2.0.0",
+    "typer>=0.12",
+    "click>=8.1",
 ]
+
+[project.scripts]
+agno_fastomop = "agno_fastomop.cli:app"
 
 [project.optional-dependencies]
 dev = [
@@ -75,3 +80,9 @@ root = "src"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# By default, skip integration tests (those need a live OMCP server, OMOP
+# database, and LLM credentials). Run them locally with: pytest -m integration
+addopts = "-m 'not integration'"
+markers = [
+    "integration: tests that require external services (OMCP server, OMOP DB, LLM API keys). Skipped by default in CI.",
+]

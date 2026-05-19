@@ -1,23 +1,26 @@
 """
-Test MCP connection directly without agent
+Test MCP connection directly without agent (integration).
 """
 
-import asyncio
 import os
 
+import pytest
 from agno.tools.mcp import MCPTools
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
+@pytest.mark.integration
 async def test_mcp_direct():
     """Test MCP tools initialization"""
 
     print("Creating MCPTools...")
     mcp_tools = MCPTools(
         transport="stdio",
-        command="uv run --directory /Users/k24118093/Documents/omcp_server python src/omcp/main.py",
+        command=os.path.expandvars(
+            os.getenv("MCP_COMMAND", "uv run --directory ${OMCP_SERVER_DIR} python src/omcp/main.py")
+        ),
         env={"DB_PATH": os.getenv("DB_PATH", "")},
     )
 
@@ -36,7 +39,3 @@ async def test_mcp_direct():
             for name, func in tools.functions.items():
                 print(f"  - {name}: {func.description}")
             print("=" * 50)
-
-
-if __name__ == "__main__":
-    asyncio.run(test_mcp_direct())
