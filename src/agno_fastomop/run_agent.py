@@ -1,19 +1,20 @@
-import asyncio
-from agno_fastomop.workflows.omop_workflow import run_omop_query, cleanup_workflow
-from agno_fastomop.config import validate_config
 import argparse
-import sys
-from pathlib import Path
+import asyncio
 import json
+import sys
 from datetime import datetime
+from pathlib import Path
 from uuid import uuid4
+
+from agno_fastomop.config import validate_config
+from agno_fastomop.workflows.omop_workflow import cleanup_workflow, run_omop_query
 
 
 async def interactive_session():
     """Interactive CLI session with persistent agents and memory"""
 
     print("Welcome to FastOMOP - the OMOP Clinical Query Workflow")
-    print("="*50)
+    print("=" * 50)
     print("Initializing agents (this may take a moment)...")
 
     # Generate session and user IDs for memory persistence
@@ -23,11 +24,12 @@ async def interactive_session():
     try:
         # Initialize workflow once
         from agno_fastomop.workflows.omop_workflow import initialize_workflow
+
         await initialize_workflow()
 
         print("Agents initialized! Enter your query or type 'exit' to quit")
         print(f"Session ID: {session_id}")
-        print("="*50)
+        print("=" * 50)
 
         while True:
             user_query = input("Enter your query: ")
@@ -40,9 +42,9 @@ async def interactive_session():
             try:
                 print("Processing...")
                 response = await run_omop_query(user_query, session_id=session_id, user_id=user_id)
-                print("="*50)
+                print("=" * 50)
                 print(response.content)
-                print("="*50)
+                print("=" * 50)
 
             except Exception as e:
                 print(f"Error: {e}")
@@ -55,23 +57,23 @@ async def interactive_session():
 
 async def batch_mode(dataset_path, output_path=None):
     """Batch mode for processing multiple queries from a file
-    
+
     Args:
         dataset_path: Path to the file containing queries
         output_path: Path to the file to save the results
     """
-    
-    input_file =Path(dataset_path)
+
+    input_file = Path(dataset_path)
     if not input_file.exists():
         raise FileNotFoundError(f"Input file not found: {input_file}")
-    
+
     if output_path is None:
         output_path = input_file.parent / f"{input_file.stem}_results.json"
-    
+
     print("FastOMOP - Batch Mode")
-    print("="*50)
+    print("=" * 50)
     print(f"Processing {input_file} and saving results to {output_path}")
-    print("="*50)
+    print("=" * 50)
 
     try:
         with open(input_file, "r") as f:
@@ -87,7 +89,7 @@ async def batch_mode(dataset_path, output_path=None):
             raise ValueError("Input file must contain a list of queries")
 
         print(f"Found {len(queries)} queries in the dataset")
-        print("="*50)
+        print("=" * 50)
 
     except json.JSONDecodeError as e:
         print(f"Error parsing JSON: {e}")
@@ -100,7 +102,7 @@ async def batch_mode(dataset_path, output_path=None):
         sys.exit(1)
 
     print("Processing queries...")
-    print("="*50)
+    print("=" * 50)
     start_time = datetime.now()
 
     # Each batch gets its own session (queries within batch share context)
@@ -110,13 +112,17 @@ async def batch_mode(dataset_path, output_path=None):
 
     results = []
     for i, query_item in enumerate(queries, 1):
-
         if isinstance(query_item, str):
             query_text = query_item
             query_metadata = {}
         elif isinstance(query_item, dict):
-            query_text = query_item.get("query") or query_item.get("question") or query_item.get("text") or query_item.get("input")
-            query_metadata = {k: v for k, v in query_item.items() if k not in ['query', 'question', 'text', 'input']}
+            query_text = (
+                query_item.get("query")
+                or query_item.get("question")
+                or query_item.get("text")
+                or query_item.get("input")
+            )
+            query_metadata = {k: v for k, v in query_item.items() if k not in ["query", "question", "text", "input"]}
         else:
             raise ValueError(f"Invalid query item: {query_item}")
 
@@ -138,18 +144,22 @@ async def batch_mode(dataset_path, output_path=None):
             result = await run_omop_query(query_text, session_id=session_id, user_id=user_id, batch_mode=True)
             query_end = datetime.now()
 
-            result_entry.update({
-                "status": "success",
-                "response": result.content,
-                "execution_time": (query_end - query_start).total_seconds(),
-            })
+            result_entry.update(
+                {
+                    "status": "success",
+                    "response": result.content,
+                    "execution_time": (query_end - query_start).total_seconds(),
+                }
+            )
             print(f"Query {i} completed in {result_entry['execution_time']:.2f} seconds")
         except Exception as e:
-            result_entry.update({
-                "status": "error",
-                "error": str(e),
-                "execution_time": (datetime.now() - query_start).total_seconds(),
-            })
+            result_entry.update(
+                {
+                    "status": "error",
+                    "error": str(e),
+                    "execution_time": (datetime.now() - query_start).total_seconds(),
+                }
+            )
 
         results.append(result_entry)
 
@@ -159,9 +169,9 @@ async def batch_mode(dataset_path, output_path=None):
 
     end_time = datetime.now()
 
-    success_count = sum(1 for r in results if r['status'] == 'success')
+    success_count = sum(1 for r in results if r["status"] == "success")
     error_count = len(results) - success_count
-    avg_time = sum(r['execution_time'] for r in results) / len(results) if results else 0
+    avg_time = sum(r["execution_time"] for r in results) / len(results) if results else 0
 
     output_doc = {
         "metadata": {
@@ -186,9 +196,9 @@ async def batch_mode(dataset_path, output_path=None):
         print(f"Error saving results: {e}")
         print("Please try again")
 
-    print("="*50)
+    print("=" * 50)
     print("Batch mode completed")
-    print("="*50)
+    print("=" * 50)
 
     return True
 

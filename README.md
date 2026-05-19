@@ -329,6 +329,23 @@ Prompts can be versioned and A/B tested through Langfuse.
 
 ## Development
 
+### Tooling
+
+The repository uses the Astral stack:
+
+- **uv** for package management and builds (`uv sync`, `uv build`).
+- **Ruff** for linting and formatting (`uv run ruff check`, `uv run ruff format`).
+- **prek** as a drop-in modern replacement for pre-commit (`uvx prek install`, `uvx prek run --all-files`).
+- **ty** for type checking (alpha; advisory only — `uv run ty check src`).
+- **zensical** for the documentation site (`uv sync --extra docs && uv run zensical serve`).
+
+Install everything in one go:
+
+```bash
+uv sync --all-extras
+uvx prek install
+```
+
 ### Project Structure
 
 ```

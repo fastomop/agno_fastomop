@@ -11,16 +11,17 @@ Then visit http://localhost:7777
 Note: Auto-reload is disabled due to DuckDB file locking constraints.
 """
 
-
 import asyncio
 from contextlib import asynccontextmanager
+
+import uvicorn
+from agno.db.sqlite import SqliteDb
 from agno.os import AgentOS
-from agno_fastomop.workflows.omop_workflow import initialize_workflow, cleanup_workflow
+from agno.team import Team
+
 from agno_fastomop.agents.factory import create_model
 from agno_fastomop.config import config, validate_config
-from agno.db.sqlite import SqliteDb
-from agno.team import Team
-import uvicorn
+from agno_fastomop.workflows.omop_workflow import cleanup_workflow, initialize_workflow
 
 # Global storage
 _workflow = None
@@ -52,10 +53,7 @@ async def initialize():
     print("✓ Workflow initialized")
 
     # Get default model config from config.local.toml
-    team_model_config = {
-        "MODEL_TYPE": config["models"]["default_provider"],
-        "MODEL_ID": config["models"]["default_id"]
-    }
+    team_model_config = {"MODEL_TYPE": config["models"]["default_provider"], "MODEL_ID": config["models"]["default_id"]}
 
     # Create shared memory db for all agents and team
     shared_db = SqliteDb(db_file="db_agent.db")
@@ -149,9 +147,9 @@ async def initialize():
     _agent_os = AgentOS(
         name="FastOMOP",
         description="Natural language interface for OMOP clinical databases",
-        workflows=[_workflow],    # Option 1: Full workflow (cloud UI)
-        teams=[_omop_team_conv, _omop_team_complex],        # Option 2: Team (local UI - Team mode)
-        agents=_agents,            # Option 3: Individual agents (local UI - Agent mode)
+        workflows=[_workflow],  # Option 1: Full workflow (cloud UI)
+        teams=[_omop_team_conv, _omop_team_complex],  # Option 2: Team (local UI - Team mode)
+        agents=_agents,  # Option 3: Individual agents (local UI - Agent mode)
         lifespan=app_lifespan,
     )
 

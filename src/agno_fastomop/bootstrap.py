@@ -1,7 +1,8 @@
-from agno_fastomop.observability.tracer import get_langfuse_client
-from agno_fastomop.config import validate_config
-from pathlib import Path
 import asyncio
+from pathlib import Path
+
+from agno_fastomop.config import validate_config
+from agno_fastomop.observability.tracer import get_langfuse_client
 
 
 def bootstrap_prompts():

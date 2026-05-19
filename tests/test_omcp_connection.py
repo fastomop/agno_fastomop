@@ -1,7 +1,9 @@
 import asyncio
 import os
 import tomllib
+
 from agno.tools.mcp import MCPTools
+
 
 def _load_omcp_command_and_env() -> str:
     config_path = "/Users/k24118093/Documents/agno_fastomop/config.toml"
@@ -29,6 +31,7 @@ async def test_omcp_connection():
     async with MCPTools(transport="stdio", command=command) as mcp_tools:
         print("Connected to OMCP server")
         print(f"MCP tools: {list(mcp_tools.functions.keys())}")
+
 
 if __name__ == "__main__":
     asyncio.run(test_omcp_connection())

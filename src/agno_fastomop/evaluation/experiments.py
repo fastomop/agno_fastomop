@@ -2,11 +2,14 @@
 Langfuse Dataset Evaluation for FastOMOP
 Runs the agentic pipeline (run_agent) on Langfuse datasets
 """
+
 import asyncio
-import nest_asyncio
 import traceback
 from datetime import datetime
+
+import nest_asyncio
 from langfuse import Langfuse
+
 from agno_fastomop.observability.tracer import get_langfuse_client
 from agno_fastomop.workflows.omop_workflow import run_omop_query
 
@@ -46,10 +49,12 @@ def omop_task(item):
         return error_msg
 
 
-def run_experiment(dataset_name: str = "foem",
-                   experiment_name: str = "FastOMOP Agentic Pipeline",
-                   experiment_description: str = None,
-                   max_concurrency: int = 2):
+def run_experiment(
+    dataset_name: str = "foem",
+    experiment_name: str = "FastOMOP Agentic Pipeline",
+    experiment_description: str = None,
+    max_concurrency: int = 2,
+):
     """
     Run a Langfuse dataset experiment
 
@@ -68,12 +73,12 @@ def run_experiment(dataset_name: str = "foem",
     print(f"Dataset loaded with {len(dataset.items)} items")
 
     # Debug: Check if we need to fetch more items
-    if hasattr(dataset, 'meta'):
+    if hasattr(dataset, "meta"):
         print(f"Dataset metadata: {dataset.meta}")
 
     # Run experiment on the dataset
     print(f"\nRunning experiment: {experiment_name}")
-    print("="*60)
+    print("=" * 60)
 
     # Create custom run name with formatted timestamp
     timestamp = datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
@@ -84,7 +89,7 @@ def run_experiment(dataset_name: str = "foem",
         run_name=run_name,
         description=experiment_description or f"Evaluation of FastOMOP agentic pipeline on {dataset_name}",
         task=omop_task,
-        max_concurrency=max_concurrency
+        max_concurrency=max_concurrency,
     )
 
     # Flush Langfuse traces
@@ -94,9 +99,9 @@ def run_experiment(dataset_name: str = "foem",
     print("✓ Langfuse traces flushed")
 
     # Display results
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("EXPERIMENT RESULTS")
-    print("="*60)
+    print("=" * 60)
     print(result.format())
 
     return result
@@ -108,5 +113,5 @@ if __name__ == "__main__":
         dataset_name="complete_foem",
         experiment_name="complete_foem test",
         experiment_description="Testing the complete agentic workflow on FOEM dataset",
-        max_concurrency=1  # Limit the concurrent queries (adjust as needed)
+        max_concurrency=1,  # Limit the concurrent queries (adjust as needed)
     )

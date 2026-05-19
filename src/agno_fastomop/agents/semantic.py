@@ -1,11 +1,13 @@
+from pathlib import Path
+
 from agno.agent import Agent
+from agno.db.sqlite import SqliteDb
 from agno.tools.mcp import MCPTools
+
 from agno_fastomop.agents.factory import create_model
 from agno_fastomop.config import get_agent_config
-from agno_fastomop.schemas.schemas import SemanticContext
 from agno_fastomop.observability.tracer import get_langfuse_client
-from agno.db.sqlite import SqliteDb
-from pathlib import Path
+from agno_fastomop.schemas.schemas import SemanticContext
 
 
 def create_semantic_agent(mcp_tools: MCPTools) -> Agent:
@@ -35,7 +37,7 @@ def create_semantic_agent(mcp_tools: MCPTools) -> Agent:
         print(f"Warning: Failed to load prompt from Langfuse: {e}")
         print("Falling back to local prompt file")
         prompt_path = Path(__file__).parent.parent / "prompts" / "semantic_agent_fastomop.txt"
-        with open(prompt_path, 'r') as f:
+        with open(prompt_path, "r") as f:
             system_prompt = f.read()
 
     agent = Agent(

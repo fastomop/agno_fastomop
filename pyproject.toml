@@ -19,24 +19,59 @@ dependencies = [
     "nest-asyncio>=1.5.0",
     "opentelemetry-api>=1.20.0",
     "ag-ui-protocol>=0.1.0",
-    "pandas>=2.0.0"
+    "pandas>=2.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0"
+    "ruff>=0.15",
+    "ty>=0.0.1a1",
+]
+docs = [
+    "zensical>=0.0.39",
+    "pymdown-extensions>=10.7",
 ]
 postgres = [
-    "ibis-framework[postgres]>=10.0.0"
+    "ibis-framework[postgres]>=10.0.0",
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/agno_fastomop"]
+[tool.uv.build-backend]
+module-name = "agno_fastomop"
+module-root = "src"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+extend-exclude = ["build", "dist", ".venv"]
+
+[tool.ruff.lint]
+# Conservative selectors so PR2 lands clean. Expand selectors in a
+# follow-up once the codebase is uniformly compliant.
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line-too-long — many existing lines exceed; revisit later
+    "E741",  # ambiguous variable name — existing style
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/agno_fastomop/__init__.py" = ["F401"]
+
+[tool.ruff.format]
+# Default ruff format settings (replaces black).
+
+[tool.ty]
+# ty is still alpha. Run it via `uv run ty check src` for advisory
+# feedback; not yet wired into prek hooks. CI treats it as non-blocking.
+
+[tool.ty.src]
+root = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
