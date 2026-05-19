@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 
 from agno.compression.manager import CompressionManager
@@ -13,6 +14,8 @@ from agno_fastomop.agents.factory import create_model
 from agno_fastomop.agents.semantic import create_semantic_agent
 from agno_fastomop.config import config, get_agent_config
 from agno_fastomop.observability.trace_context import write_trace_context_otel
+
+logger = logging.getLogger(__name__)
 
 # Module-level storage for workflow (created once, reused)
 # We cache separate workflows for batch vs interactive mode
@@ -101,9 +104,12 @@ async def initialize_workflow(batch_mode=False):
                     omcp_env["DB_HOST"] = parsed.hostname or "localhost"
                     omcp_env["DB_PORT"] = str(parsed.port) if parsed.port else "5432"
                     omcp_env["DB_DATABASE"] = parsed.path.lstrip("/") if parsed.path else ""
-                except Exception as e:
-                    print(f"Warning: Could not parse PostgreSQL connection string from DB_PATH: {e}")
-                    print("Please set DB_USERNAME, DB_PASSWORD, DB_HOST, DB_PORT, and DB_DATABASE individually")
+                except Exception:
+                    logger.warning(
+                        "Could not parse PostgreSQL connection string from DB_PATH. "
+                        "Set DB_USERNAME, DB_PASSWORD, DB_HOST, DB_PORT, and DB_DATABASE individually.",
+                        exc_info=True,
+                    )
             else:
                 # Use individual environment variables if provided
                 for key in ["DB_USERNAME", "DB_HOST", "DB_PORT", "DB_DATABASE"]:
@@ -120,8 +126,8 @@ async def initialize_workflow(batch_mode=False):
         # For large databases (700GB+), connection initialization and queries can take longer
         # Default to 660 seconds (11 minutes) to allow for 10-minute query timeout + 1 minute buffer
         mcp_timeout = int(os.getenv("MCP_CONNECTION_TIMEOUT", "660"))
-        print(f"Connecting to OMCP server (timeout: {mcp_timeout}s)...")
-        print("Note: Large databases (700GB+) may take longer to initialize and execute complex queries.")
+        logger.info("Connecting to OMCP server (timeout: %ds)...", mcp_timeout)
+        logger.debug("Large databases (700GB+) may take longer to initialize and execute complex queries.")
 
         _mcp_tools = MCPTools(
             transport=omcp_config["transport"],
@@ -133,11 +139,13 @@ async def initialize_workflow(batch_mode=False):
         # Manually connect MCP once
         try:
             await _mcp_tools._connect()
-            print("✓ OMCP server connected successfully")
-        except Exception as e:
-            print(f"⚠️  MCP connection failed: {e}")
-            print(f"If timeout occurred, try increasing MCP_CONNECTION_TIMEOUT (current: {mcp_timeout}s)")
-            print("For very large databases, try: export MCP_CONNECTION_TIMEOUT=600  # 10 minutes")
+            logger.info("OMCP server connected successfully")
+        except Exception:
+            logger.exception(
+                "MCP connection failed. If a timeout occurred, increase MCP_CONNECTION_TIMEOUT (current: %ds). "
+                "For very large databases, try: export MCP_CONNECTION_TIMEOUT=600  # 10 minutes",
+                mcp_timeout,
+            )
             raise
 
         # Create shared database for conversation history and memory
@@ -155,7 +163,7 @@ async def initialize_workflow(batch_mode=False):
                 compress_tool_results=True,
                 compress_token_limit=6000,  # Trigger compression at 6000 tokens
             )
-            print("✓ Compression manager created for batch mode (token limit: 6000)")
+            logger.info("Compression manager created for batch mode (token limit: 6000)")
 
         # Create agents with shared MCP - both query the database
         semantic_agent = create_semantic_agent(_mcp_tools)  # Queries concept table
@@ -165,7 +173,7 @@ async def initialize_workflow(batch_mode=False):
         if compression_manager is not None:
             semantic_agent.compression_manager = compression_manager
             database_agent.compression_manager = compression_manager
-            print("✓ Compression manager attached to both agents")
+            logger.info("Compression manager attached to both agents")
 
         # Configure workflow history based on mode
         # Batch mode: disable history for performance (independent queries)
@@ -259,8 +267,8 @@ def extract_final_query_from_step(step_response) -> str:
                             if args and "query" in args:
                                 final_query = args["query"]
 
-    except Exception as e:
-        print(f"Warning: Could not extract final query from step: {e}")
+    except Exception:
+        logger.warning("Could not extract final query from step", exc_info=True)
 
     return final_query
 
@@ -327,11 +335,8 @@ def extract_raw_result(workflow_response) -> str:
                 if raw_result:
                     break
 
-    except Exception as e:
-        import traceback
-
-        print(f"Warning: Could not extract raw result: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+    except Exception:
+        logger.warning("Could not extract raw result", exc_info=True)
 
     return raw_result
 
@@ -401,11 +406,8 @@ def extract_final_query(workflow_response) -> str:
         if not final_query and hasattr(workflow_response, "run_response"):
             final_query = extract_final_query_from_step(workflow_response.run_response)
 
-    except Exception as e:
-        import traceback
-
-        print(f"Warning: Could not extract final query: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+    except Exception:
+        logger.warning("Could not extract final query", exc_info=True)
 
     return final_query
 
@@ -426,9 +428,9 @@ async def run_omop_query(user_query: str, session_id: str = None, user_id: str =
     # This uses W3C Trace Context format (traceparent/tracestate)
     try:
         write_trace_context_otel(session_id=session_id)
-    except Exception as e:
+    except Exception:
         # Non-critical: if trace context extraction fails, continue without it
-        print(f"Warning: Could not inject OpenTelemetry trace context: {e}")
+        logger.warning("Could not inject OpenTelemetry trace context", exc_info=True)
 
     workflow = await initialize_workflow(batch_mode=batch_mode)
     response = await workflow.arun(user_query, session_id=session_id, user_id=user_id)
@@ -461,13 +463,10 @@ async def run_omop_query(user_query: str, session_id: str = None, user_id: str =
 
             langfuse.update_current_trace(output=existing_output)
         else:
-            print("WARNING: No SQL query or raw result found in response")
+            logger.warning("No SQL query or raw result found in response")
 
-    except Exception as e:
-        import traceback
-
-        print(f"ERROR: Could not update trace with query metadata: {e}")
-        print(f"ERROR traceback: {traceback.format_exc()}")
+    except Exception:
+        logger.exception("Could not update trace with query metadata")
 
     return response
 

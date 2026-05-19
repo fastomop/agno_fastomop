@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from agno.agent import Agent
@@ -9,6 +10,8 @@ from agno_fastomop.agents.factory import create_model
 from agno_fastomop.agents.semantic import create_semantic_agent
 from agno_fastomop.config import get_agent_config
 from agno_fastomop.observability.tracer import get_langfuse_client
+
+logger = logging.getLogger(__name__)
 
 
 async def create_supervisor_agent(mcp_tools: MCPTools) -> Agent:
@@ -30,10 +33,9 @@ async def create_supervisor_agent(mcp_tools: MCPTools) -> Agent:
         langfuse = get_langfuse_client()
         prompt = langfuse.get_prompt("supervisor", label="dev")
         system_prompt = prompt.prompt
-        print(f"✓ Loaded supervisor prompt from Langfuse (version: {prompt.version})")
-    except Exception as e:
-        print(f"Warning: Failed to load prompt from Langfuse: {e}")
-        print("Falling back to local prompt file")
+        logger.info("Loaded supervisor prompt from Langfuse (version: %s)", prompt.version)
+    except Exception:
+        logger.warning("Failed to load prompt from Langfuse; falling back to local prompt file", exc_info=True)
         prompt_path = Path(__file__).parent.parent / "prompts" / "supervisor.txt"
         with open(prompt_path, "r") as f:
             system_prompt = f.read()
