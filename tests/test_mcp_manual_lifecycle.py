@@ -1,10 +1,10 @@
 """
-Test manual MCP lifecycle management (connect once, reuse, close)
+Test manual MCP lifecycle management — connect once, reuse, close (integration).
 """
 
-import asyncio
 import os
 
+import pytest
 from agno.agent import Agent
 from agno.tools.mcp import MCPTools
 from dotenv import load_dotenv
@@ -14,13 +14,16 @@ from agno_fastomop.config import config
 load_dotenv()
 
 
+@pytest.mark.integration
 async def test_manual_lifecycle():
     """Test if we can connect once and reuse MCPTools across queries"""
 
     print("Creating MCPTools...")
     omcp_config = config["omcp"]
     mcp_tools = MCPTools(
-        transport=omcp_config["transport"], command=omcp_config["command"], env={"DB_PATH": os.getenv("DB_PATH", "")}
+        transport=omcp_config["transport"],
+        command=os.path.expandvars(omcp_config["command"]),
+        env={"DB_PATH": os.getenv("DB_PATH", "")},
     )
 
     print("Manually connecting MCP...")
@@ -60,7 +63,3 @@ async def test_manual_lifecycle():
     print("Closing MCP connection...")
     await mcp_tools.close()
     print("Done!")
-
-
-if __name__ == "__main__":
-    asyncio.run(test_manual_lifecycle())

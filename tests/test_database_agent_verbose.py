@@ -1,45 +1,25 @@
 """
-Test database agent with verbose MCP tool inspection
+Test database agent with verbose MCP tool inspection (integration).
 """
 
-import asyncio
+import pytest
 
 from agno_fastomop.agents.database import create_database_agent
 
 
-async def test_database_agent_verbose():
-    """Test database agent and inspect available tools"""
+@pytest.mark.integration
+async def test_database_agent_verbose(mcp_tools):
+    """Build a database agent against a live MCP connection and inspect tools."""
 
-    print("Creating database agent...")
-    agent = create_database_agent()
+    agent = create_database_agent(mcp_tools)
 
-    print("=" * 50)
-    print("Agent tools:")
-    if hasattr(agent, "tools"):
-        for tool in agent.tools:
-            print(f"  - {tool}")
-            if hasattr(tool, "functions"):
-                print(f"    Functions: {list(tool.functions.keys())}")
-    print("=" * 50)
+    # Tool surface is wired up
+    assert hasattr(agent, "tools"), "agent should expose a `tools` attribute"
+    assert agent.tools, "agent should have at least one tool wired (MCPTools)"
 
     query = "Execute this SQL: SELECT COUNT(*) FROM base.person"
+    response = await agent.arun(query)
 
-    print(f"Query: {query}")
-    print("=" * 50)
-
-    response = agent.run(query, stream=False)
-
-    print("Response:")
-    print(response.content)
-    print("=" * 50)
-
-    print("\nMessages:")
-    for msg in response.messages:
-        print(f"  Role: {msg.role}")
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            print(f"  Tool calls: {msg.tool_calls}")
-    print("=" * 50)
-
-
-if __name__ == "__main__":
-    asyncio.run(test_database_agent_verbose())
+    assert response is not None
+    assert response.content
+    assert response.messages, "response should carry at least one message"

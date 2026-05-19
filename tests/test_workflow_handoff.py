@@ -1,12 +1,13 @@
 """
-Test what gets passed between agents in the workflow
+Test what gets passed between agents in the workflow (integration).
 """
 
-import asyncio
+import pytest
 
 from agno_fastomop.workflows.omop_workflow import initialize_workflow
 
 
+@pytest.mark.integration
 async def test_workflow_handoff():
     """Test inter-agent communication"""
 
@@ -38,7 +39,3 @@ async def test_workflow_handoff():
             print(f"  Type: {type(event.step_output)}")
             if hasattr(event.step_output, "content"):
                 print(f"  Content: {event.step_output.content[:500]}...")
-
-
-if __name__ == "__main__":
-    asyncio.run(test_workflow_handoff())

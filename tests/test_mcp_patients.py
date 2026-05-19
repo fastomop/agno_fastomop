@@ -1,20 +1,25 @@
 """
-Quick test script to query patient count via OMCP MCP server
+Query patient count via OMCP MCP server (integration).
 """
 
-import asyncio
+import os
 
+import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
+@pytest.mark.integration
 async def test_patient_count():
     """Test MCP connection and query patient count"""
 
+    omcp_dir = os.environ["OMCP_SERVER_DIR"]
+    db_path = os.environ["DB_PATH"]
+
     server_params = StdioServerParameters(
         command="uv",
-        args=["run", "--directory", "/Users/k24118093/Documents/omcp_server", "python", "src/omcp/main.py"],
-        env={"DB_PATH": "/Users/k24118093/Documents/omcp_server/synthetic_data/synthea.duckdb"},
+        args=["run", "--directory", omcp_dir, "python", "src/omcp/main.py"],
+        env={"DB_PATH": db_path},
     )
 
     async with stdio_client(server_params) as (read, write):
@@ -34,7 +39,3 @@ async def test_patient_count():
             print("Result:")
             print(result.content[0].text)
             print("=" * 50)
-
-
-if __name__ == "__main__":
-    asyncio.run(test_patient_count())

@@ -1,8 +1,8 @@
-"""Test semantic agent in isolation to debug output format."""
+"""Test semantic agent in isolation to debug output format (integration)."""
 
-import asyncio
 import os
 
+import pytest
 from agno.tools.mcp import MCPTools
 from dotenv import load_dotenv
 
@@ -12,6 +12,7 @@ from agno_fastomop.config import config
 load_dotenv()
 
 
+@pytest.mark.integration
 async def test_semantic_agent():
     """Test semantic agent with a complex drug query."""
 
@@ -22,7 +23,9 @@ async def test_semantic_agent():
     # Initialize MCP connection
     omcp_config = config["omcp"]
     mcp_tools = MCPTools(
-        transport=omcp_config["transport"], command=omcp_config["command"], env={"DB_PATH": os.getenv("DB_PATH", "")}
+        transport=omcp_config["transport"],
+        command=os.path.expandvars(omcp_config["command"]),
+        env={"DB_PATH": os.getenv("DB_PATH", "")},
     )
 
     print("\n1. Connecting to MCP...")
@@ -35,7 +38,10 @@ async def test_semantic_agent():
     print("   ✓ Semantic agent created")
 
     # Test query
-    test_query = "Counts of patients taking drug NDA020800 0.3 ML epinephrine 1 MG/ML Auto-Injector and loratadine 5 MG Chewable Tablet within 90 days."
+    test_query = (
+        "Counts of patients taking drug NDA020800 0.3 ML epinephrine 1 MG/ML Auto-Injector "
+        "and loratadine 5 MG Chewable Tablet within 90 days."
+    )
 
     print("\n3. Running query:")
     print(f"   {test_query}")
@@ -91,7 +97,3 @@ async def test_semantic_agent():
         if hasattr(mcp_tools, "close"):
             await mcp_tools.close()
         print("   ✓ Done")
-
-
-if __name__ == "__main__":
-    asyncio.run(test_semantic_agent())
