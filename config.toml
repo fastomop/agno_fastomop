@@ -48,7 +48,9 @@ reasoning = false
 
 [omcp]
 transport = "stdio"
-command = "uv run --directory /Users/k24118093/Documents/omcp_server python src/omcp/main.py"
+# Path expansion: ${OMCP_SERVER_DIR} is substituted at config-load time.
+# Override the whole command via the MCP_COMMAND env var if you need a custom invocation.
+command = "uv run --directory ${OMCP_SERVER_DIR} python src/omcp/main.py"
 
 [milvus]
 host = "localhost"

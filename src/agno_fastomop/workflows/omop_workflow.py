@@ -248,7 +248,7 @@ def extract_final_query_from_step(step_response) -> str:
                                     try:
                                         args_raw = tool_call.function.arguments
                                         args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-                                    except:
+                                    except (json.JSONDecodeError, AttributeError, TypeError):
                                         pass
                             elif hasattr(tool_call, 'tool_args'):
                                 args = tool_call.tool_args

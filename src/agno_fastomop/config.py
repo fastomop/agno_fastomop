@@ -63,7 +63,7 @@ def get_agent_config(agent_name:str) -> Dict[str, Any]:
         **agent_config,
         "MODEL_TYPE": provider_config["provider"],
         "MODEL_ID": provider_config["model_id"],
-        "MCP_COMMAND": os.getenv("MCP_COMMAND", config["omcp"]["command"]),
+        "MCP_COMMAND": os.getenv("MCP_COMMAND", os.path.expandvars(config["omcp"]["command"])),
     }
 
     #Add azure specifics
@@ -77,18 +77,20 @@ def get_agent_config(agent_name:str) -> Dict[str, Any]:
 def validate_config():
     """
     Validate required environment variables based on providers used.
+
+    Call this explicitly from CLI entry points — do not invoke at import time,
+    otherwise simply importing the package fails when optional integrations
+    (e.g. Langfuse) are not configured.
     """
-    required_base = [
-        "LANGFUSE_PUBLIC_KEY",
-        "LANGFUSE_SECRET_KEY"
-    ]
+    required_env = []
 
     providers_used = set()
     for agent in config["agents"].values():
         provider = agent.get("model_provider", config["models"]["default_provider"])
         providers_used.add(provider)
 
-    required_env = required_base.copy()
+    if os.getenv("LANGFUSE_ENABLED", "false").lower() == "true":
+        required_env.extend(["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"])
 
     if "azure" in providers_used:
         required_env.append("AZURE_OPENAI_API_KEY")
@@ -106,10 +108,5 @@ def validate_config():
 
     missing = [var for var in required_env if not os.getenv(var)]
 
-    if missing: 
+    if missing:
         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
-
-validate_config()
-
-
-    
